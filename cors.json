@@ -1,0 +1,7 @@
+[
+  {
+    "origin": ["http://localhost:3000", "https://rezu-90106.firebaseapp.com"],
+    "method": ["GET", "HEAD", "PUT", "POST", "DELETE"],
+    "maxAgeSeconds": 3600
+  }
+]
