@@ -17,6 +17,18 @@ import {
   doc, 
 } from "firebase/firestore"
 import { storage, firestore } from "@/lib/firebase"
+import Modal from '@/components/modal/Modal'
+import dynamic from 'next/dynamic'
+
+// Dynamic import to avoid SSR issues with react-pdf
+const ResumePreview = dynamic(() => import('@/components/resume/ResumePreview'), {
+  ssr: false,
+  loading: () => (
+    <div className="flex items-center justify-center p-8">
+      <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600"></div>
+    </div>
+  )
+})
 
 
 // Define a simple type for the resume documents retrieved from Firestore
@@ -35,6 +47,7 @@ export default function My_Resumes() {
   const [loading, setLoading] = useState(true)
   const [downloadURL, setDownloadURL] = useState("");
   const [resumes, setResumes] = useState<ResumeItem[]>([]); // State to store fetched resumes
+  const [previewResume, setPreviewResume] = useState<ResumeItem | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const router = useRouter()
 
@@ -161,7 +174,7 @@ export default function My_Resumes() {
           console.error("User not authenticated.");
           return;
       }
-      
+
       // IMPORTANT: Using custom modal UI is preferred over window.confirm in IFRAMEs.
       // Since this is a Next.js app in development, we'll keep the console error
       // in place of a full modal implementation for brevity, but note this is not best practice.
@@ -170,11 +183,21 @@ export default function My_Resumes() {
       if (!confirmDelete) {
           return;
       }
-      
+
       try {
-          // 1. Delete the file from Firebase Storage
+          // 1. Try to delete the file from Firebase Storage
           const fileRef = ref(storage, `resumes/${user.uid}/${resume.name}`);
-          await deleteObject(fileRef);
+          try {
+              await deleteObject(fileRef);
+          } catch (storageError: any) {
+              // If the file doesn't exist in storage, log it but continue to delete the Firestore record
+              if (storageError?.code === 'storage/object-not-found') {
+                  console.warn(`File not found in storage, removing orphaned Firestore record: ${resume.name}`);
+              } else {
+                  // Re-throw other storage errors
+                  throw storageError;
+              }
+          }
 
           // 2. Delete the metadata document from Firestore
           const docRef = doc(firestore, "resumes", resume.id);
@@ -184,9 +207,6 @@ export default function My_Resumes() {
 
       } catch (error) {
           console.error(`Error deleting resume ${resume.name}:`, error);
-          // Note: If the file is already missing in storage, deleteObject throws an error,
-          // but we still want to remove the Firestore record, so we often ignore
-          // 'storage/object-not-found' errors here.
       }
   };
 
@@ -194,6 +214,14 @@ export default function My_Resumes() {
       // Firebase Storage download URLs include auth tokens, so we can open directly
       // This bypasses CORS issues that occur with programmatic downloads
       window.open(url, '_blank');
+  };
+
+  const handlePreview = (resume: ResumeItem) => {
+      setPreviewResume(resume);
+  };
+
+  const handleClosePreview = () => {
+      setPreviewResume(null);
   };
 
   if (loading) {
@@ -288,24 +316,49 @@ export default function My_Resumes() {
                 {/* TimeUploaded is a Firestore Timestamp, so we convert it to a Date for display */}
                 <p>Uploaded: {resume.timeUploaded?.toDate().toLocaleDateString() || 'N/A'}</p>
               </div>
-              <div className="flex space-x-3 mt-2">
+              <div className="flex flex-col space-y-2 mt-2">
                 <button
-                  onClick={() => handleDownload(resume.downloadURL, resume.name)}
-                  className="flex-1 px-4 py-2 text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition"
+                  onClick={() => handlePreview(resume)}
+                  className="w-full px-4 py-2 text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition"
                 >
-                  Download
+                  Preview
                 </button>
-                <button
-                  onClick={() => handleDelete(resume)}
-                  className="flex-1 px-4 py-2 text-sm bg-red-100 text-red-600 rounded-lg hover:bg-red-200 transition"
-                >
-                  Delete
-                </button>
+                <div className="flex space-x-2">
+                  <button
+                    onClick={() => handleDownload(resume.downloadURL, resume.name)}
+                    className="flex-1 px-4 py-2 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition"
+                  >
+                    Download
+                  </button>
+                  <button
+                    onClick={() => handleDelete(resume)}
+                    className="flex-1 px-4 py-2 text-sm bg-red-100 text-red-600 rounded-lg hover:bg-red-200 transition"
+                  >
+                    Delete
+                  </button>
+                </div>
               </div>
             </div>
           ))}
         </div>
       </main>
+
+      {/* Resume Preview Modal */}
+      <Modal
+        isOpen={!!previewResume}
+        onClose={handleClosePreview}
+        maxWidth="4xl"
+        showCloseButton={true}
+      >
+        {previewResume && (
+          <ResumePreview
+            downloadURL={previewResume.downloadURL}
+            fileName={previewResume.name}
+            onClose={handleClosePreview}
+            onDownload={() => handleDownload(previewResume.downloadURL, previewResume.name)}
+          />
+        )}
+      </Modal>
     </div>
   )
 }
