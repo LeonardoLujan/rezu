@@ -27,6 +27,17 @@ interface WhitespaceIndicator {
   utilization: number; // fraction of full_width that this line's text occupies (0–1)
 }
 
+interface SeasonIssue {
+  season: string;
+  year: string;
+  suggestedMonth: string;
+  page: number;
+  baseX: number;      // viewport left at scale=1
+  baseY: number;      // viewport top of text at scale=1 (from page top)
+  baseWidth: number;
+  baseHeight: number;
+}
+
 const ZOOM_LEVELS = [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0]
 const MARGIN_THRESHOLD_INCHES = 0.7
 const NEAR_WHITE_THRESHOLD = 230
@@ -110,13 +121,7 @@ export default function ResumePreview({
   const [pdfDoc, setPdfDoc] = useState<any>(null)
   const [whitespaceIndicators, setWhitespaceIndicators] = useState<WhitespaceIndicator[]>([])
   const [showSolutions, setShowSolutions] = useState<boolean>(false)
-  const [graduationIssue, setGraduationIssue] = useState<{
-    season: string; year: string; suggestedMonth: string;
-    baseX: number;      // viewport left at scale=1 (px)
-    baseY: number;      // viewport top of text at scale=1 (px from top)
-    baseWidth: number;  // text width at scale=1
-    baseHeight: number; // font height at scale=1
-  } | null>(null)
+  const [seasonIssues, setSeasonIssues] = useState<SeasonIssue[]>([])
 
   const pageContainerRef = useRef<HTMLDivElement>(null)
 
@@ -158,78 +163,87 @@ export default function ResumePreview({
   }, [])
 
   /**
-   * Scans page 1 text for a season+year graduation date (e.g. "Spring 2026").
-   * If found, records the text position (at scale=1) so an amber highlight can
-   * be drawn over the exact words on the PDF canvas.
+   * Scans every page for all "Season Year" date patterns (e.g. "Fall 2023", "Summer 2024").
+   * Records viewport coordinates at scale=1 for each match so amber highlights can be
+   * drawn at any zoom level. Handles season and year split across adjacent text items.
    */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const analyzeGraduationDate = useCallback(async (pdf: any) => {
+  const analyzeSeasonDates = useCallback(async (pdf: any) => {
     try {
-      const page = await pdf.getPage(1)
-      const viewport = page.getViewport({ scale: 1 })
-      const textContent = await page.getTextContent()
-
       type TItem = { str: string; x: number; y: number; width: number; height: number }
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const items: TItem[] = textContent.items
+      const allIssues: SeasonIssue[] = []
+
+      for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+        const page = await pdf.getPage(pageNum)
+        const viewport = page.getViewport({ scale: 1 })
+        const textContent = await page.getTextContent()
+
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        .filter((item: any) => 'str' in item && (item as any).str.trim())
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        .map((item: any) => ({
-          str:    item.str as string,
-          x:      item.transform[4] as number,
-          y:      item.transform[5] as number,
-          width:  item.width as number,
-          height: (item.height as number) || 12,
-        }))
+        const items: TItem[] = textContent.items
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          .filter((item: any) => 'str' in item && (item as any).str.trim())
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          .map((item: any) => ({
+            str:    item.str as string,
+            x:      item.transform[4] as number,
+            y:      item.transform[5] as number,
+            width:  item.width as number,
+            height: (item.height as number) || 12,
+          }))
 
-      const fullText = items.map(i => i.str).join(' ')
-      const match = fullText.match(/\b(Spring|Fall|Summer|Winter)\s+(\d{4})\b/i)
-      if (!match) return
+        const matchedIndices = new Set<number>()
 
-      const season = match[1]
-      const year   = match[2]
-      const suggestedMonth = SEASON_TO_MONTH[season.toLowerCase()]
+        const pushIssue = (
+          season: string, year: string,
+          startItem: TItem, endItem: TItem
+        ) => {
+          const [baseX, baseYBaseline] = viewport.convertToViewportPoint(startItem.x, startItem.y)
+          const [baseXRight]           = viewport.convertToViewportPoint(endItem.x + endItem.width, endItem.y)
+          allIssues.push({
+            season,
+            year,
+            suggestedMonth: SEASON_TO_MONTH[season.toLowerCase()],
+            page: pageNum,
+            baseX,
+            baseY:      baseYBaseline - (startItem.height || 12),
+            baseWidth:  baseXRight - baseX,
+            baseHeight: startItem.height || 12,
+          })
+        }
 
-      // Locate the text item(s) covering "Season Year"
-      const seasonRe = new RegExp(`\\b${season}\\b`, 'i')
-      let startItem: TItem | null = null
-      let endItem:   TItem | null = null
+        for (let i = 0; i < items.length; i++) {
+          if (matchedIndices.has(i)) continue
 
-      for (let i = 0; i < items.length; i++) {
-        if (!seasonRe.test(items[i].str)) continue
-        startItem = items[i]
-        // Full "Season Year" in same item?
-        if (items[i].str.includes(year)) {
-          endItem = items[i]
-        } else {
-          // Year is in a nearby item
-          for (let j = i + 1; j < Math.min(i + 5, items.length); j++) {
-            if (items[j].str.includes(year)) { endItem = items[j]; break }
+          // ── Case 1: full "Season Year" within one item (may occur multiple times) ──
+          const fullRe = /\b(Spring|Fall|Summer|Winter)\s+(\d{4})\b/gi
+          let m: RegExpExecArray | null
+          let foundInItem = false
+          while ((m = fullRe.exec(items[i].str)) !== null) {
+            pushIssue(m[1], m[2], items[i], items[i])
+            matchedIndices.add(i)
+            foundInItem = true
+          }
+          if (foundInItem) continue
+
+          // ── Case 2: season at end of item, year at start of next item ────────────
+          const trailM = items[i].str.match(/\b(Spring|Fall|Summer|Winter)\s*$/i)
+          if (trailM) {
+            for (let j = i + 1; j < Math.min(i + 4, items.length); j++) {
+              const yearM = items[j].str.match(/^(\d{4})\b/)
+              if (yearM) {
+                pushIssue(trailM[1], yearM[1], items[i], items[j])
+                matchedIndices.add(i)
+                matchedIndices.add(j)
+                break
+              }
+            }
           }
         }
-        break
       }
 
-      if (!startItem || !endItem) return
-
-      // Convert PDF user-space → viewport coordinates at scale=1
-      // viewport Y is measured from page top (Y-axis flipped from PDF)
-      const [baseX, baseYBaseline] = viewport.convertToViewportPoint(startItem.x, startItem.y)
-      const [baseXRight]           = viewport.convertToViewportPoint(endItem.x + endItem.width, endItem.y)
-      const baseHeight = startItem.height
-
-      setGraduationIssue({
-        season,
-        year,
-        suggestedMonth,
-        baseX,
-        baseY:      baseYBaseline - baseHeight, // top of text box (from page top)
-        baseWidth:  baseXRight - baseX,
-        baseHeight,
-      })
+      setSeasonIssues(allIssues)
     } catch (e) {
-      console.error('Graduation date analysis error:', e)
+      console.error('Season date analysis error:', e)
     }
   }, [])
 
@@ -356,7 +370,7 @@ export default function ResumePreview({
     setPdfDoc(pdf)
     setLoading(false)
     setError(null)
-    analyzeGraduationDate(pdf)
+    analyzeSeasonDates(pdf)
   }
 
   const onDocumentLoadError = (error: Error) => {
@@ -392,7 +406,7 @@ export default function ResumePreview({
     : null
   const hasMarginIssue     = flaggedMargins ? Object.values(flaggedMargins).some(Boolean) : false
   const hasWhitespaceIssue = whitespaceIndicators.length > 0
-  const totalSolutionsCount = whitespaceIndicators.length + (graduationIssue ? 1 : 0)
+  const totalSolutionsCount = whitespaceIndicators.length + seasonIssues.length
 
   return (
     <div className="flex flex-col h-full max-h-[90vh]">
@@ -457,12 +471,15 @@ export default function ResumePreview({
         </div>
       )}
 
-      {/* Critique Legend — graduation date format */}
-      {graduationIssue && (
+      {/* Critique Legend — season-formatted dates */}
+      {seasonIssues.length > 0 && (
         <div className="flex items-center gap-2 px-4 py-2 bg-amber-50 border-b border-amber-200 text-sm text-amber-700">
           <div className="w-3 h-3 rounded-sm flex-shrink-0" style={{ backgroundColor: 'rgba(217, 119, 6, 0.5)' }} />
           <span>
-            Graduation date uses &ldquo;{graduationIssue.season}&rdquo; &mdash; consider using a specific month: &ldquo;{graduationIssue.suggestedMonth} {graduationIssue.year}&rdquo;
+            {seasonIssues.length === 1
+              ? <>Date uses &ldquo;{seasonIssues[0].season} {seasonIssues[0].year}&rdquo; &mdash; consider &ldquo;{seasonIssues[0].suggestedMonth} {seasonIssues[0].year}&rdquo;</>
+              : <>{seasonIssues.length} season-formatted dates found &mdash; consider using month names for consistency</>
+            }
           </span>
         </div>
       )}
@@ -471,7 +488,7 @@ export default function ResumePreview({
       <div className="flex-1 overflow-hidden flex flex-row">
 
         {/* PDF area */}
-        <div className="flex-1 overflow-auto bg-gray-100 p-4 flex items-center justify-center">
+        <div className="flex-1 overflow-auto bg-gray-100 p-4 flex items-start justify-center">
           {loading && !error && (
             <div className="flex flex-col items-center justify-center p-8">
               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600"></div>
@@ -512,18 +529,21 @@ export default function ResumePreview({
                   </>
                 )}
 
-                {/* Graduation date highlight */}
-                {pageNumber === 1 && graduationIssue && (
-                  <div style={{
-                    position: 'absolute',
-                    left:   `${graduationIssue.baseX * scale}px`,
-                    top:    `${graduationIssue.baseY * scale}px`,
-                    width:  `${graduationIssue.baseWidth * scale}px`,
-                    height: `${graduationIssue.baseHeight * scale}px`,
-                    backgroundColor: 'rgba(245, 158, 11, 0.4)',
-                    pointerEvents: 'none',
-                  }} />
-                )}
+                {/* Season date highlights */}
+                {seasonIssues
+                  .filter(iss => iss.page === pageNumber)
+                  .map((iss, i) => (
+                    <div key={`season-${i}`} style={{
+                      position: 'absolute',
+                      left:   `${iss.baseX * scale}px`,
+                      top:    `${iss.baseY * scale}px`,
+                      width:  `${iss.baseWidth * scale}px`,
+                      height: `${iss.baseHeight * scale}px`,
+                      backgroundColor: 'rgba(245, 158, 11, 0.4)',
+                      pointerEvents: 'none',
+                    }} />
+                  ))
+                }
 
                 {/* Line whitespace indicators */}
                 {whitespaceIndicators.map((ind, i) => (
@@ -595,15 +615,15 @@ export default function ResumePreview({
                 {/* Solution cards */}
                 <div className="flex-1 overflow-y-auto p-3 space-y-3">
 
-                  {/* Graduation date card */}
-                  {graduationIssue && (
-                    <div className="rounded-lg border border-amber-200 bg-amber-50 overflow-hidden">
+                  {/* Season date cards */}
+                  {seasonIssues.map((iss, i) => (
+                    <div key={`season-card-${i}`} className="rounded-lg border border-amber-200 bg-amber-50 overflow-hidden">
                       <div className="px-3 py-2 border-b border-amber-200 bg-white">
                         <p className="text-[11px] text-amber-600 uppercase tracking-wide font-medium mb-1">
-                          Education — Graduation Date
+                          Date Format{seasonIssues.length > 1 ? ` (${i + 1}/${seasonIssues.length})` : ''} — p.{iss.page}
                         </p>
                         <p className="text-xs text-gray-700 font-mono leading-relaxed border-l-2 border-amber-400 pl-2">
-                          &ldquo;{graduationIssue.season} {graduationIssue.year}&rdquo;
+                          &ldquo;{iss.season} {iss.year}&rdquo;
                         </p>
                       </div>
                       <div className="p-2">
@@ -613,12 +633,12 @@ export default function ResumePreview({
                             <span className="text-[10px] bg-amber-500 text-white px-1.5 py-0.5 rounded font-medium">Recommended</span>
                           </div>
                           <p className="text-amber-700">
-                            Change &ldquo;{graduationIssue.season} {graduationIssue.year}&rdquo; to &ldquo;{graduationIssue.suggestedMonth} {graduationIssue.year}&rdquo; to match the month format used elsewhere on your resume.
+                            Change &ldquo;{iss.season} {iss.year}&rdquo; to &ldquo;{iss.suggestedMonth} {iss.year}&rdquo; to match the month format used elsewhere on your resume.
                           </p>
                         </div>
                       </div>
                     </div>
-                  )}
+                  ))}
 
                   {totalSolutionsCount === 0 ? (
                     <div className="flex flex-col items-center justify-center py-8 text-center">
