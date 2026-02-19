@@ -38,6 +38,16 @@ interface SeasonIssue {
   baseHeight: number;
 }
 
+interface DegreeIssue {
+  abbreviated: string;  // e.g. "B.S.c.."
+  suggested: string;    // e.g. "Bachelor of Science in Computer Science"
+  page: number;
+  baseX: number;
+  baseY: number;
+  baseWidth: number;
+  baseHeight: number;
+}
+
 const ZOOM_LEVELS = [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0]
 const MARGIN_THRESHOLD_INCHES = 0.7
 const NEAR_WHITE_THRESHOLD = 230
@@ -50,6 +60,17 @@ const SEASON_TO_MONTH: Record<string, string> = {
   summer: 'August',
   winter: 'December',
 }
+
+// Each entry: abbrevRe matches the abbreviated form, fullRe detects if the formal
+// version is already present (in which case we skip flagging), fullLabel is the
+// recommended full degree name.
+const DEGREE_CHECKS = [
+  { abbrevRe: /\bB\.?[Ss]c?\.{0,3}(?![a-zA-Z])/, fullRe: /\bBachelor of Science\b/i, fullLabel: 'Bachelor of Science' },
+  { abbrevRe: /\bB\.?[Aa]\.{0,2}(?![a-zA-Z])/,   fullRe: /\bBachelor of Arts\b/i,    fullLabel: 'Bachelor of Arts' },
+  { abbrevRe: /\bM\.?[Ss]c?\.{0,2}(?![a-zA-Z])/, fullRe: /\bMaster of Science\b/i,   fullLabel: 'Master of Science' },
+  { abbrevRe: /\bPh\.?D\.{0,2}(?![a-zA-Z])/,     fullRe: /\bDoctor of Philosophy\b/i, fullLabel: 'Doctor of Philosophy' },
+  { abbrevRe: /\bM\.?B\.?A\.{0,2}(?![a-zA-Z])/,  fullRe: /\bMaster of Business Administration\b/i, fullLabel: 'Master of Business Administration' },
+]
 
 /**
  * Scans the rendered PDF canvas to detect whitespace margins on all four sides.
@@ -122,6 +143,7 @@ export default function ResumePreview({
   const [whitespaceIndicators, setWhitespaceIndicators] = useState<WhitespaceIndicator[]>([])
   const [showSolutions, setShowSolutions] = useState<boolean>(false)
   const [seasonIssues, setSeasonIssues] = useState<SeasonIssue[]>([])
+  const [degreeIssues, setDegreeIssues] = useState<DegreeIssue[]>([])
 
   const pageContainerRef = useRef<HTMLDivElement>(null)
 
@@ -244,6 +266,93 @@ export default function ResumePreview({
       setSeasonIssues(allIssues)
     } catch (e) {
       console.error('Season date analysis error:', e)
+    }
+  }, [])
+
+  /**
+   * Scans all pages for abbreviated degree names (e.g. "B.S.c..", "M.S.").
+   * If the formal equivalent ("Bachelor of Science") is absent, flags the abbreviation
+   * and suggests the full form with the detected major (e.g. "Bachelor of Science in
+   * Computer Science").
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const analyzeDegreeAbbreviations = useCallback(async (pdf: any) => {
+    try {
+      type TItem = { str: string; x: number; y: number; width: number; height: number }
+      const allIssues: DegreeIssue[] = []
+
+      for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+        const page     = await pdf.getPage(pageNum)
+        const viewport = page.getViewport({ scale: 1 })
+        const tc       = await page.getTextContent()
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const items: TItem[] = tc.items
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          .filter((it: any) => 'str' in it && (it as any).str.trim())
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          .map((it: any) => ({
+            str:    it.str as string,
+            x:      it.transform[4] as number,
+            y:      it.transform[5] as number,
+            width:  it.width as number,
+            height: (it.height as number) || 12,
+          }))
+
+        const fullText = items.map(i => i.str).join(' ')
+
+        for (const check of DEGREE_CHECKS) {
+          // Skip if the formal version is already present on this page
+          if (check.fullRe.test(fullText)) continue
+
+          // Find the first item whose text contains the abbreviated form
+          for (let i = 0; i < items.length; i++) {
+            const m = check.abbrevRe.exec(items[i].str)
+            if (!m) continue
+
+            const abbreviated = m[0]
+
+            // Collect all items on the same line (same PDF Y ±2pt) to extract the major field
+            const lineText = items
+              .filter(other => Math.abs(other.y - items[i].y) <= LINE_TOLERANCE_PTS)
+              .sort((a, b) => a.x - b.x)
+              .map(it => it.str)
+              .join(' ')
+              .trim()
+
+            // Strip the abbreviation and trailing punctuation, then cut off at the
+            // graduation date / GPA line (right-aligned text on the same line)
+            const escapedAbbrev = abbreviated.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+            const field = lineText
+              .replace(new RegExp(escapedAbbrev + '[.,\\s]*'), '')
+              .replace(/(Graduating|Expected|GPA|University|College|\b\d{4}\b).*$/i, '')
+              .replace(/^[,\s]+/, '')
+              .trim()
+
+            const suggested = field
+              ? `${check.fullLabel} in ${field}`
+              : check.fullLabel
+
+            const [baseX, baseYBaseline] = viewport.convertToViewportPoint(items[i].x, items[i].y)
+            const [baseXRight]           = viewport.convertToViewportPoint(items[i].x + items[i].width, items[i].y)
+
+            allIssues.push({
+              abbreviated,
+              suggested,
+              page: pageNum,
+              baseX,
+              baseY:      baseYBaseline - (items[i].height || 12),
+              baseWidth:  baseXRight - baseX,
+              baseHeight: items[i].height || 12,
+            })
+            break // one flag per degree type per page
+          }
+        }
+      }
+
+      setDegreeIssues(allIssues)
+    } catch (e) {
+      console.error('Degree abbreviation analysis error:', e)
     }
   }, [])
 
@@ -371,6 +480,7 @@ export default function ResumePreview({
     setLoading(false)
     setError(null)
     analyzeSeasonDates(pdf)
+    analyzeDegreeAbbreviations(pdf)
   }
 
   const onDocumentLoadError = (error: Error) => {
@@ -406,7 +516,7 @@ export default function ResumePreview({
     : null
   const hasMarginIssue     = flaggedMargins ? Object.values(flaggedMargins).some(Boolean) : false
   const hasWhitespaceIssue = whitespaceIndicators.length > 0
-  const totalSolutionsCount = whitespaceIndicators.length + seasonIssues.length
+  const totalSolutionsCount = whitespaceIndicators.length + seasonIssues.length + degreeIssues.length
 
   return (
     <div className="flex flex-col h-full max-h-[90vh]">
@@ -484,6 +594,19 @@ export default function ResumePreview({
         </div>
       )}
 
+      {/* Critique Legend — degree abbreviation */}
+      {degreeIssues.length > 0 && (
+        <div className="flex items-center gap-2 px-4 py-2 bg-violet-50 border-b border-violet-200 text-sm text-violet-700">
+          <div className="w-3 h-3 rounded-sm flex-shrink-0" style={{ backgroundColor: 'rgba(139, 92, 246, 0.45)' }} />
+          <span>
+            {degreeIssues.length === 1
+              ? <>Degree &ldquo;{degreeIssues[0].abbreviated}&rdquo; is abbreviated &mdash; consider writing &ldquo;{degreeIssues[0].suggested}&rdquo;</>
+              : <>{degreeIssues.length} abbreviated degree name{degreeIssues.length !== 1 ? 's' : ''} found &mdash; consider using the full formal name</>
+            }
+          </span>
+        </div>
+      )}
+
       {/* PDF Viewer + Solutions Sidebar */}
       <div className="flex-1 overflow-hidden flex flex-row">
 
@@ -540,6 +663,22 @@ export default function ResumePreview({
                       width:  `${iss.baseWidth * scale}px`,
                       height: `${iss.baseHeight * scale}px`,
                       backgroundColor: 'rgba(245, 158, 11, 0.4)',
+                      pointerEvents: 'none',
+                    }} />
+                  ))
+                }
+
+                {/* Degree abbreviation highlights */}
+                {degreeIssues
+                  .filter(iss => iss.page === pageNumber)
+                  .map((iss, i) => (
+                    <div key={`degree-${i}`} style={{
+                      position: 'absolute',
+                      left:   `${iss.baseX * scale}px`,
+                      top:    `${iss.baseY * scale}px`,
+                      width:  `${iss.baseWidth * scale}px`,
+                      height: `${iss.baseHeight * scale}px`,
+                      backgroundColor: 'rgba(139, 92, 246, 0.35)',
                       pointerEvents: 'none',
                     }} />
                   ))
@@ -634,6 +773,31 @@ export default function ResumePreview({
                           </div>
                           <p className="text-amber-700">
                             Change &ldquo;{iss.season} {iss.year}&rdquo; to &ldquo;{iss.suggestedMonth} {iss.year}&rdquo; to match the month format used elsewhere on your resume.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+
+                  {/* Degree abbreviation cards */}
+                  {degreeIssues.map((iss, i) => (
+                    <div key={`degree-card-${i}`} className="rounded-lg border border-violet-200 bg-violet-50 overflow-hidden">
+                      <div className="px-3 py-2 border-b border-violet-200 bg-white">
+                        <p className="text-[11px] text-violet-600 uppercase tracking-wide font-medium mb-1">
+                          Degree Name — p.{iss.page}
+                        </p>
+                        <p className="text-xs text-gray-700 font-mono leading-relaxed border-l-2 border-violet-400 pl-2">
+                          &ldquo;{iss.abbreviated}&rdquo;
+                        </p>
+                      </div>
+                      <div className="p-2">
+                        <div className="p-2 rounded text-xs bg-violet-100 border border-violet-300">
+                          <div className="flex items-center gap-1.5 mb-1">
+                            <span className="font-semibold text-violet-700">Write in Full</span>
+                            <span className="text-[10px] bg-violet-500 text-white px-1.5 py-0.5 rounded font-medium">Recommended</span>
+                          </div>
+                          <p className="text-violet-700">
+                            Change &ldquo;{iss.abbreviated}&rdquo; to &ldquo;{iss.suggested}&rdquo; for formality.
                           </p>
                         </div>
                       </div>
