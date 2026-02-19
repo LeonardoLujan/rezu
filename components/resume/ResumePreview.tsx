@@ -25,6 +25,8 @@ interface WhitespaceIndicator {
   width: number;       // screen px — width of the unused portion
   lineText: string;    // concatenated text of the flagged line
   utilization: number; // fraction of full_width that this line's text occupies (0–1)
+  lineX: number;       // screen px — left edge of the full content line
+  lineHeight: number;  // screen px — estimated line height
 }
 
 interface SeasonIssue {
@@ -144,6 +146,7 @@ export default function ResumePreview({
   const [showSolutions, setShowSolutions] = useState<boolean>(false)
   const [seasonIssues, setSeasonIssues] = useState<SeasonIssue[]>([])
   const [degreeIssues, setDegreeIssues] = useState<DegreeIssue[]>([])
+  const [selectedSolution, setSelectedSolution] = useState<string | null>(null)
 
   const pageContainerRef = useRef<HTMLDivElement>(null)
 
@@ -369,7 +372,7 @@ export default function ResumePreview({
       const textContent = await page.getTextContent()
 
       // ── 1. Group text items into lines by PDF Y coordinate ─────────────────
-      type LineItem = { pdfX: number; pdfXRight: number; screenY: number; str: string }
+      type LineItem = { pdfX: number; pdfXRight: number; screenY: number; str: string; height: number }
       const lineMap = new Map<number, LineItem[]>()
 
       for (const item of textContent.items) {
@@ -383,13 +386,14 @@ export default function ResumePreview({
         const pdfX: number = transform[4]
         const pdfY: number = transform[5]
         const pdfXRight: number = pdfX + (ti.width as number)
+        const height: number = (ti.height as number) || 12
         const [, screenY] = viewport.convertToViewportPoint(pdfX, pdfY)
 
         let bucketKey: number | null = null
         for (const k of lineMap.keys()) {
           if (Math.abs(k - pdfY) <= LINE_TOLERANCE_PTS) { bucketKey = k; break }
         }
-        const entry: LineItem = { pdfX, pdfXRight, screenY, str }
+        const entry: LineItem = { pdfX, pdfXRight, screenY, str, height }
         if (bucketKey !== null) {
           lineMap.get(bucketKey)!.push(entry)
         } else {
@@ -432,11 +436,13 @@ export default function ResumePreview({
           .map(i => i.str)
           .join('')
           .trim()
+        const avgHeight = items.reduce((s, it) => s + it.height, 0) / items.length
         return {
           screenY: items[0].screenY,
           screenXLeft:  Math.min(...screenXStarts),
           screenXRight: Math.max(...screenXEnds),
           lineText,
+          lineHeight: avgHeight * scale,
         }
       })
 
@@ -458,6 +464,8 @@ export default function ResumePreview({
             width: unused,
             lineText: line.lineText,
             utilization,
+            lineX: xLeft,
+            lineHeight: line.lineHeight,
           })
         }
       }
@@ -653,41 +661,72 @@ export default function ResumePreview({
                 )}
 
                 {/* Season date highlights */}
-                {seasonIssues
-                  .filter(iss => iss.page === pageNumber)
-                  .map((iss, i) => (
+                {seasonIssues.map((iss, i) => {
+                  if (iss.page !== pageNumber) return null
+                  const isSelected = selectedSolution === `season-${i}`
+                  const pad = isSelected ? 4 : 0
+                  return (
                     <div key={`season-${i}`} style={{
                       position: 'absolute',
-                      left:   `${iss.baseX * scale}px`,
-                      top:    `${iss.baseY * scale}px`,
-                      width:  `${iss.baseWidth * scale}px`,
-                      height: `${iss.baseHeight * scale}px`,
-                      backgroundColor: 'rgba(245, 158, 11, 0.4)',
+                      left:   `${iss.baseX * scale - pad}px`,
+                      top:    `${iss.baseY * scale - pad}px`,
+                      width:  `${iss.baseWidth * scale + pad * 2}px`,
+                      height: `${iss.baseHeight * scale + pad * 2}px`,
+                      backgroundColor: isSelected ? 'rgba(245, 158, 11, 0.75)' : 'rgba(245, 158, 11, 0.4)',
+                      outline: isSelected ? '2px solid rgba(217, 119, 6, 0.9)' : 'none',
+                      transition: 'all 0.15s ease',
                       pointerEvents: 'none',
                     }} />
-                  ))
-                }
+                  )
+                })}
 
                 {/* Degree abbreviation highlights */}
-                {degreeIssues
-                  .filter(iss => iss.page === pageNumber)
-                  .map((iss, i) => (
+                {degreeIssues.map((iss, i) => {
+                  if (iss.page !== pageNumber) return null
+                  const isSelected = selectedSolution === `degree-${i}`
+                  const pad = isSelected ? 4 : 0
+                  return (
                     <div key={`degree-${i}`} style={{
                       position: 'absolute',
-                      left:   `${iss.baseX * scale}px`,
-                      top:    `${iss.baseY * scale}px`,
-                      width:  `${iss.baseWidth * scale}px`,
-                      height: `${iss.baseHeight * scale}px`,
-                      backgroundColor: 'rgba(139, 92, 246, 0.35)',
+                      left:   `${iss.baseX * scale - pad}px`,
+                      top:    `${iss.baseY * scale - pad}px`,
+                      width:  `${iss.baseWidth * scale + pad * 2}px`,
+                      height: `${iss.baseHeight * scale + pad * 2}px`,
+                      backgroundColor: isSelected ? 'rgba(139, 92, 246, 0.7)' : 'rgba(139, 92, 246, 0.35)',
+                      outline: isSelected ? '2px solid rgba(109, 40, 217, 0.9)' : 'none',
+                      transition: 'all 0.15s ease',
                       pointerEvents: 'none',
                     }} />
-                  ))
-                }
+                  )
+                })}
 
                 {/* Line whitespace indicators */}
-                {whitespaceIndicators.map((ind, i) => (
-                  <div key={i} style={{ position: 'absolute', left: `${ind.x}px`, top: `${ind.y}px`, width: `${ind.width}px`, height: '2px', backgroundColor: 'rgba(59, 130, 246, 0.7)', pointerEvents: 'none' }} />
-                ))}
+                {whitespaceIndicators.map((ind, i) => {
+                  const isSelected = selectedSolution === `whitespace-${i}`
+                  return isSelected ? (
+                    <div key={i} style={{
+                      position: 'absolute',
+                      left: `${ind.lineX}px`,
+                      top: `${ind.y - ind.lineHeight + 1}px`,
+                      width: `${(ind.x + ind.width) - ind.lineX}px`,
+                      height: `${ind.lineHeight}px`,
+                      backgroundColor: 'rgba(59, 130, 246, 0.3)',
+                      outline: '2px solid rgba(37, 99, 235, 0.8)',
+                      transition: 'all 0.15s ease',
+                      pointerEvents: 'none',
+                    }} />
+                  ) : (
+                    <div key={i} style={{
+                      position: 'absolute',
+                      left: `${ind.x}px`,
+                      top: `${ind.y}px`,
+                      width: `${ind.width}px`,
+                      height: '2px',
+                      backgroundColor: 'rgba(59, 130, 246, 0.7)',
+                      pointerEvents: 'none',
+                    }} />
+                  )
+                })}
               </div>
             </Document>
           )}
@@ -756,7 +795,18 @@ export default function ResumePreview({
 
                   {/* Season date cards */}
                   {seasonIssues.map((iss, i) => (
-                    <div key={`season-card-${i}`} className="rounded-lg border border-amber-200 bg-amber-50 overflow-hidden">
+                    <div
+                      key={`season-card-${i}`}
+                      onClick={() => {
+                        if (iss.page !== pageNumber) setPageNumber(iss.page)
+                        setSelectedSolution(prev => prev === `season-${i}` ? null : `season-${i}`)
+                      }}
+                      className={`rounded-lg border overflow-hidden cursor-pointer transition-all bg-amber-50 ${
+                        selectedSolution === `season-${i}`
+                          ? 'border-amber-500 ring-2 ring-amber-300'
+                          : 'border-amber-200 hover:border-amber-400'
+                      }`}
+                    >
                       <div className="px-3 py-2 border-b border-amber-200 bg-white">
                         <p className="text-[11px] text-amber-600 uppercase tracking-wide font-medium mb-1">
                           Date Format{seasonIssues.length > 1 ? ` (${i + 1}/${seasonIssues.length})` : ''} — p.{iss.page}
@@ -781,7 +831,18 @@ export default function ResumePreview({
 
                   {/* Degree abbreviation cards */}
                   {degreeIssues.map((iss, i) => (
-                    <div key={`degree-card-${i}`} className="rounded-lg border border-violet-200 bg-violet-50 overflow-hidden">
+                    <div
+                      key={`degree-card-${i}`}
+                      onClick={() => {
+                        if (iss.page !== pageNumber) setPageNumber(iss.page)
+                        setSelectedSolution(prev => prev === `degree-${i}` ? null : `degree-${i}`)
+                      }}
+                      className={`rounded-lg border overflow-hidden cursor-pointer transition-all bg-violet-50 ${
+                        selectedSolution === `degree-${i}`
+                          ? 'border-violet-500 ring-2 ring-violet-300'
+                          : 'border-violet-200 hover:border-violet-400'
+                      }`}
+                    >
                       <div className="px-3 py-2 border-b border-violet-200 bg-white">
                         <p className="text-[11px] text-violet-600 uppercase tracking-wide font-medium mb-1">
                           Degree Name — p.{iss.page}
@@ -832,7 +893,15 @@ export default function ResumePreview({
                       ]
 
                       return (
-                        <div key={i} className="rounded-lg border border-gray-200 bg-gray-50 overflow-hidden">
+                        <div
+                          key={i}
+                          onClick={() => setSelectedSolution(prev => prev === `whitespace-${i}` ? null : `whitespace-${i}`)}
+                          className={`rounded-lg border overflow-hidden cursor-pointer transition-all ${
+                            selectedSolution === `whitespace-${i}`
+                              ? 'border-blue-500 ring-2 ring-blue-300 bg-gray-50'
+                              : 'border-gray-200 bg-gray-50 hover:border-blue-300'
+                          }`}
+                        >
                           {/* Line text preview */}
                           <div className="px-3 py-2 border-b border-gray-200 bg-white">
                             <p className="text-[11px] text-gray-400 uppercase tracking-wide font-medium mb-1">
