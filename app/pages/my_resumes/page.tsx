@@ -347,7 +347,7 @@ export default function My_Resumes() {
       <Modal
         isOpen={!!previewResume}
         onClose={handleClosePreview}
-        maxWidth="4xl"
+        maxWidth="full"
         showCloseButton={true}
       >
         {previewResume && (
