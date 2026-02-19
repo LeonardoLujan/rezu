@@ -14,7 +14,7 @@ export default function LoginButton() {
       setUser(user)
       // Redirect once user logs in
       if (user) {
-        router.push('/pages/home')
+        router.push('/pages/my_resumes')
       }
     })
     return () => unsubscribe()
