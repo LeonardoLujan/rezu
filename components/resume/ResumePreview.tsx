@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { Document, Page, pdfjs } from 'react-pdf'
 
 interface ResumePreviewProps {
@@ -10,7 +10,72 @@ interface ResumePreviewProps {
   onDownload: () => void;
 }
 
+interface MarginData {
+  top: number;
+  bottom: number;
+  left: number;
+  right: number;
+  pageWidth: number;
+  pageHeight: number;
+}
+
 const ZOOM_LEVELS = [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0]
+const MARGIN_THRESHOLD_INCHES = 0.7
+const NEAR_WHITE_THRESHOLD = 230
+
+/**
+ * Scans the rendered PDF canvas to detect whitespace margins on all four sides.
+ * Returns margin sizes in physical canvas pixels, or null on failure.
+ */
+function detectWhitespaceMargins(
+  canvas: HTMLCanvasElement
+): { top: number; bottom: number; left: number; right: number } | null {
+  try {
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return null
+
+    const w = canvas.width
+    const h = canvas.height
+    const { data } = ctx.getImageData(0, 0, w, h)
+
+    const isWhitespace = (idx: number) =>
+      data[idx] > NEAR_WHITE_THRESHOLD &&
+      data[idx + 1] > NEAR_WHITE_THRESHOLD &&
+      data[idx + 2] > NEAR_WHITE_THRESHOLD
+
+    let top = 0
+    topScan: for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        if (!isWhitespace((y * w + x) * 4)) { top = y; break topScan }
+      }
+    }
+
+    let bottom = 0
+    bottomScan: for (let y = h - 1; y >= 0; y--) {
+      for (let x = 0; x < w; x++) {
+        if (!isWhitespace((y * w + x) * 4)) { bottom = h - 1 - y; break bottomScan }
+      }
+    }
+
+    let left = 0
+    leftScan: for (let x = 0; x < w; x++) {
+      for (let y = 0; y < h; y++) {
+        if (!isWhitespace((y * w + x) * 4)) { left = x; break leftScan }
+      }
+    }
+
+    let right = 0
+    rightScan: for (let x = w - 1; x >= 0; x--) {
+      for (let y = 0; y < h; y++) {
+        if (!isWhitespace((y * w + x) * 4)) { right = w - 1 - x; break rightScan }
+      }
+    }
+
+    return { top, bottom, left, right }
+  } catch {
+    return null
+  }
+}
 
 export default function ResumePreview({
   downloadURL,
@@ -23,11 +88,49 @@ export default function ResumePreview({
   const [scale, setScale] = useState<number>(1.0)
   const [loading, setLoading] = useState<boolean>(true)
   const [error, setError] = useState<string | null>(null)
+  const [marginData, setMarginData] = useState<MarginData | null>(null)
+
+  const pageContainerRef = useRef<HTMLDivElement>(null)
 
   // Configure PDF.js worker on client side only
   useEffect(() => {
     pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`
   }, [])
+
+  // Clear stale margin overlays when the page or zoom level changes
+  useEffect(() => {
+    setMarginData(null)
+  }, [pageNumber, scale])
+
+  const analyzeMargins = useCallback(() => {
+    const container = pageContainerRef.current
+    if (!container) return
+
+    const canvas = container.querySelector('canvas')
+    if (!canvas) return
+
+    const physWidth = canvas.width
+    const cssWidth = parseFloat(canvas.style.width) || physWidth
+    const physHeight = canvas.height
+    const cssHeight = parseFloat(canvas.style.height) || physHeight
+    const pixelRatio = physWidth / cssWidth
+
+    const margins = detectWhitespaceMargins(canvas)
+    if (!margins) return
+
+    setMarginData({
+      top: margins.top / pixelRatio,
+      bottom: margins.bottom / pixelRatio,
+      left: margins.left / pixelRatio,
+      right: margins.right / pixelRatio,
+      pageWidth: cssWidth,
+      pageHeight: cssHeight,
+    })
+  }, [])
+
+  const onPageRenderSuccess = useCallback(() => {
+    requestAnimationFrame(analyzeMargins)
+  }, [analyzeMargins])
 
   const onDocumentLoadSuccess = ({ numPages }: { numPages: number }) => {
     setNumPages(numPages)
@@ -65,6 +168,20 @@ export default function ResumePreview({
 
   const canZoomIn = scale < ZOOM_LEVELS[ZOOM_LEVELS.length - 1]
   const canZoomOut = scale > ZOOM_LEVELS[0]
+
+  // Compute which margins are flagged (threshold in CSS pixels at current scale)
+  const thresholdPx = MARGIN_THRESHOLD_INCHES * 72 * scale
+  const flaggedMargins = marginData
+    ? {
+        top: marginData.top > thresholdPx,
+        bottom: marginData.bottom > thresholdPx,
+        left: marginData.left > thresholdPx,
+        right: marginData.right > thresholdPx,
+      }
+    : null
+  const hasMarginIssue = flaggedMargins
+    ? Object.values(flaggedMargins).some(Boolean)
+    : false
 
   return (
     <div className="flex flex-col h-full max-h-[90vh]">
@@ -186,6 +303,16 @@ export default function ResumePreview({
         </button>
       </div>
 
+      {/* Critique Legend — shown when at least one margin is flagged */}
+      {hasMarginIssue && (
+        <div className="flex items-center gap-2 px-4 py-2 bg-red-50 border-b border-red-200 text-sm text-red-700">
+          <div className="w-3 h-3 rounded-sm flex-shrink-0" style={{ backgroundColor: 'rgba(220, 38, 38, 0.5)' }} />
+          <span>
+            Margins exceed 0.7&#34; &mdash; consider reducing to reclaim content space
+          </span>
+        </div>
+      )}
+
       {/* PDF Viewer Area */}
       <div className="flex-1 overflow-auto bg-gray-100 p-4 flex items-center justify-center">
         {loading && !error && (
@@ -229,13 +356,75 @@ export default function ResumePreview({
             onLoadError={onDocumentLoadError}
             loading={null}
           >
-            <Page
-              pageNumber={pageNumber}
-              scale={scale}
-              renderTextLayer={false}
-              renderAnnotationLayer={false}
-              className="shadow-lg"
-            />
+            {/* Wrapper gives us a DOM anchor for the canvas and a positioning context for overlays */}
+            <div ref={pageContainerRef} style={{ position: 'relative', display: 'inline-block' }}>
+              <Page
+                pageNumber={pageNumber}
+                scale={scale}
+                renderTextLayer={false}
+                renderAnnotationLayer={false}
+                className="shadow-lg"
+                onRenderSuccess={onPageRenderSuccess}
+              />
+
+              {/* Margin critique overlays */}
+              {marginData && flaggedMargins && (
+                <>
+                  {flaggedMargins.top && (
+                    <div
+                      style={{
+                        position: 'absolute',
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        height: `${marginData.top}px`,
+                        backgroundColor: 'rgba(220, 38, 38, 0.25)',
+                        pointerEvents: 'none',
+                      }}
+                    />
+                  )}
+                  {flaggedMargins.bottom && (
+                    <div
+                      style={{
+                        position: 'absolute',
+                        bottom: 0,
+                        left: 0,
+                        right: 0,
+                        height: `${marginData.bottom}px`,
+                        backgroundColor: 'rgba(220, 38, 38, 0.25)',
+                        pointerEvents: 'none',
+                      }}
+                    />
+                  )}
+                  {flaggedMargins.left && (
+                    <div
+                      style={{
+                        position: 'absolute',
+                        top: 0,
+                        left: 0,
+                        bottom: 0,
+                        width: `${marginData.left}px`,
+                        backgroundColor: 'rgba(220, 38, 38, 0.25)',
+                        pointerEvents: 'none',
+                      }}
+                    />
+                  )}
+                  {flaggedMargins.right && (
+                    <div
+                      style={{
+                        position: 'absolute',
+                        top: 0,
+                        right: 0,
+                        bottom: 0,
+                        width: `${marginData.right}px`,
+                        backgroundColor: 'rgba(220, 38, 38, 0.25)',
+                        pointerEvents: 'none',
+                      }}
+                    />
+                  )}
+                </>
+              )}
+            </div>
           </Document>
         )}
       </div>
