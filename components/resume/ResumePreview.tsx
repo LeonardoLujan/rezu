@@ -33,6 +33,12 @@ const NEAR_WHITE_THRESHOLD = 230
 const SECTION_KEYWORDS = ['experience', 'projects', 'leadership', 'skills']
 const WHITESPACE_THRESHOLD = 0.25
 const LINE_TOLERANCE_PTS = 2
+const SEASON_TO_MONTH: Record<string, string> = {
+  spring: 'May',
+  fall:   'December',
+  summer: 'August',
+  winter: 'December',
+}
 
 /**
  * Scans the rendered PDF canvas to detect whitespace margins on all four sides.
@@ -104,6 +110,13 @@ export default function ResumePreview({
   const [pdfDoc, setPdfDoc] = useState<any>(null)
   const [whitespaceIndicators, setWhitespaceIndicators] = useState<WhitespaceIndicator[]>([])
   const [showSolutions, setShowSolutions] = useState<boolean>(false)
+  const [graduationIssue, setGraduationIssue] = useState<{
+    season: string; year: string; suggestedMonth: string;
+    baseX: number;      // viewport left at scale=1 (px)
+    baseY: number;      // viewport top of text at scale=1 (px from top)
+    baseWidth: number;  // text width at scale=1
+    baseHeight: number; // font height at scale=1
+  } | null>(null)
 
   const pageContainerRef = useRef<HTMLDivElement>(null)
 
@@ -142,6 +155,82 @@ export default function ResumePreview({
       pageWidth: cssWidth,
       pageHeight: cssHeight,
     })
+  }, [])
+
+  /**
+   * Scans page 1 text for a season+year graduation date (e.g. "Spring 2026").
+   * If found, records the text position (at scale=1) so an amber highlight can
+   * be drawn over the exact words on the PDF canvas.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const analyzeGraduationDate = useCallback(async (pdf: any) => {
+    try {
+      const page = await pdf.getPage(1)
+      const viewport = page.getViewport({ scale: 1 })
+      const textContent = await page.getTextContent()
+
+      type TItem = { str: string; x: number; y: number; width: number; height: number }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const items: TItem[] = textContent.items
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .filter((item: any) => 'str' in item && (item as any).str.trim())
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .map((item: any) => ({
+          str:    item.str as string,
+          x:      item.transform[4] as number,
+          y:      item.transform[5] as number,
+          width:  item.width as number,
+          height: (item.height as number) || 12,
+        }))
+
+      const fullText = items.map(i => i.str).join(' ')
+      const match = fullText.match(/\b(Spring|Fall|Summer|Winter)\s+(\d{4})\b/i)
+      if (!match) return
+
+      const season = match[1]
+      const year   = match[2]
+      const suggestedMonth = SEASON_TO_MONTH[season.toLowerCase()]
+
+      // Locate the text item(s) covering "Season Year"
+      const seasonRe = new RegExp(`\\b${season}\\b`, 'i')
+      let startItem: TItem | null = null
+      let endItem:   TItem | null = null
+
+      for (let i = 0; i < items.length; i++) {
+        if (!seasonRe.test(items[i].str)) continue
+        startItem = items[i]
+        // Full "Season Year" in same item?
+        if (items[i].str.includes(year)) {
+          endItem = items[i]
+        } else {
+          // Year is in a nearby item
+          for (let j = i + 1; j < Math.min(i + 5, items.length); j++) {
+            if (items[j].str.includes(year)) { endItem = items[j]; break }
+          }
+        }
+        break
+      }
+
+      if (!startItem || !endItem) return
+
+      // Convert PDF user-space → viewport coordinates at scale=1
+      // viewport Y is measured from page top (Y-axis flipped from PDF)
+      const [baseX, baseYBaseline] = viewport.convertToViewportPoint(startItem.x, startItem.y)
+      const [baseXRight]           = viewport.convertToViewportPoint(endItem.x + endItem.width, endItem.y)
+      const baseHeight = startItem.height
+
+      setGraduationIssue({
+        season,
+        year,
+        suggestedMonth,
+        baseX,
+        baseY:      baseYBaseline - baseHeight, // top of text box (from page top)
+        baseWidth:  baseXRight - baseX,
+        baseHeight,
+      })
+    } catch (e) {
+      console.error('Graduation date analysis error:', e)
+    }
   }, [])
 
   /**
@@ -267,6 +356,7 @@ export default function ResumePreview({
     setPdfDoc(pdf)
     setLoading(false)
     setError(null)
+    analyzeGraduationDate(pdf)
   }
 
   const onDocumentLoadError = (error: Error) => {
@@ -302,6 +392,7 @@ export default function ResumePreview({
     : null
   const hasMarginIssue     = flaggedMargins ? Object.values(flaggedMargins).some(Boolean) : false
   const hasWhitespaceIssue = whitespaceIndicators.length > 0
+  const totalSolutionsCount = whitespaceIndicators.length + (graduationIssue ? 1 : 0)
 
   return (
     <div className="flex flex-col h-full max-h-[90vh]">
@@ -366,6 +457,16 @@ export default function ResumePreview({
         </div>
       )}
 
+      {/* Critique Legend — graduation date format */}
+      {graduationIssue && (
+        <div className="flex items-center gap-2 px-4 py-2 bg-amber-50 border-b border-amber-200 text-sm text-amber-700">
+          <div className="w-3 h-3 rounded-sm flex-shrink-0" style={{ backgroundColor: 'rgba(217, 119, 6, 0.5)' }} />
+          <span>
+            Graduation date uses &ldquo;{graduationIssue.season}&rdquo; &mdash; consider using a specific month: &ldquo;{graduationIssue.suggestedMonth} {graduationIssue.year}&rdquo;
+          </span>
+        </div>
+      )}
+
       {/* PDF Viewer + Solutions Sidebar */}
       <div className="flex-1 overflow-hidden flex flex-row">
 
@@ -411,6 +512,19 @@ export default function ResumePreview({
                   </>
                 )}
 
+                {/* Graduation date highlight */}
+                {pageNumber === 1 && graduationIssue && (
+                  <div style={{
+                    position: 'absolute',
+                    left:   `${graduationIssue.baseX * scale}px`,
+                    top:    `${graduationIssue.baseY * scale}px`,
+                    width:  `${graduationIssue.baseWidth * scale}px`,
+                    height: `${graduationIssue.baseHeight * scale}px`,
+                    backgroundColor: 'rgba(245, 158, 11, 0.4)',
+                    pointerEvents: 'none',
+                  }} />
+                )}
+
                 {/* Line whitespace indicators */}
                 {whitespaceIndicators.map((ind, i) => (
                   <div key={i} style={{ position: 'absolute', left: `${ind.x}px`, top: `${ind.y}px`, width: `${ind.width}px`, height: '2px', backgroundColor: 'rgba(59, 130, 246, 0.7)', pointerEvents: 'none' }} />
@@ -433,12 +547,12 @@ export default function ResumePreview({
               {/* Count badge */}
               <span
                 className={`w-5 h-5 text-[10px] font-bold rounded-full flex items-center justify-center ${
-                  whitespaceIndicators.length > 0
+                  totalSolutionsCount > 0
                     ? 'bg-blue-500 text-white'
                     : 'bg-gray-200 text-gray-500'
                 }`}
               >
-                {whitespaceIndicators.length}
+                {totalSolutionsCount}
               </span>
               {/* Rotated label */}
               <span
@@ -469,9 +583,9 @@ export default function ResumePreview({
                 <div className="px-4 py-3 border-b border-gray-200 bg-gray-50 flex-shrink-0">
                   <h3 className="text-sm font-semibold text-gray-700">
                     Solutions
-                    {whitespaceIndicators.length > 0 && (
+                    {totalSolutionsCount > 0 && (
                       <span className="ml-2 text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full font-medium">
-                        {whitespaceIndicators.length} line{whitespaceIndicators.length !== 1 ? 's' : ''}
+                        {totalSolutionsCount} issue{totalSolutionsCount !== 1 ? 's' : ''}
                       </span>
                     )}
                   </h3>
@@ -480,14 +594,40 @@ export default function ResumePreview({
 
                 {/* Solution cards */}
                 <div className="flex-1 overflow-y-auto p-3 space-y-3">
-                  {whitespaceIndicators.length === 0 ? (
+
+                  {/* Graduation date card */}
+                  {graduationIssue && (
+                    <div className="rounded-lg border border-amber-200 bg-amber-50 overflow-hidden">
+                      <div className="px-3 py-2 border-b border-amber-200 bg-white">
+                        <p className="text-[11px] text-amber-600 uppercase tracking-wide font-medium mb-1">
+                          Education — Graduation Date
+                        </p>
+                        <p className="text-xs text-gray-700 font-mono leading-relaxed border-l-2 border-amber-400 pl-2">
+                          &ldquo;{graduationIssue.season} {graduationIssue.year}&rdquo;
+                        </p>
+                      </div>
+                      <div className="p-2">
+                        <div className="p-2 rounded text-xs bg-amber-100 border border-amber-300">
+                          <div className="flex items-center gap-1.5 mb-1">
+                            <span className="font-semibold text-amber-700">Update Format</span>
+                            <span className="text-[10px] bg-amber-500 text-white px-1.5 py-0.5 rounded font-medium">Recommended</span>
+                          </div>
+                          <p className="text-amber-700">
+                            Change &ldquo;{graduationIssue.season} {graduationIssue.year}&rdquo; to &ldquo;{graduationIssue.suggestedMonth} {graduationIssue.year}&rdquo; to match the month format used elsewhere on your resume.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {totalSolutionsCount === 0 ? (
                     <div className="flex flex-col items-center justify-center py-8 text-center">
                       <svg className="w-8 h-8 text-green-400 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                       </svg>
-                      <p className="text-sm text-gray-500">No line whitespace issues on this page.</p>
+                      <p className="text-sm text-gray-500">No issues found on this page.</p>
                     </div>
-                  ) : (
+                  ) : whitespaceIndicators.length > 0 ? (
                     whitespaceIndicators.map((ind, i) => {
                       // utilization <= 0.5 means the line only fills half — recommend shortening
                       const recommendShorten = ind.utilization <= 0.5
@@ -557,7 +697,7 @@ export default function ResumePreview({
                         </div>
                       )
                     })
-                  )}
+                  ) : null}
                 </div>
               </div>
             </div>

@@ -86,6 +86,9 @@ The critique system overlays visual indicators directly on the PDF canvas inside
 ### Implemented (continued)
 - **Line whitespace detection** — Uses pdfjs `getTextContent()` to extract text positions. Groups items into lines by PDF Y coordinate (±2pt tolerance). Finds the topmost section header (experience/projects/leadership/skills) and only analyses lines below it. Computes `x_left` (min line start) and `x_right` (max line end) as the reference full-width. Flags any line where `(x_right − line_end) / full_width > 0.25`. Renders a 2px blue line (`rgba(59,130,246,0.7)`) over the unused portion at the text baseline.
 
+### Implemented (continued)
+- **Graduation date format check** — On document load, scans page 1 text for the pattern `/(Spring|Fall|Summer|Winter)\s+\d{4}/i`. If found, flags it with an amber legend bar and adds a card to the Solutions panel suggesting the equivalent month (`SEASON_TO_MONTH`: Spring→May, Fall→December, Summer→August, Winter→December). Solutions panel badge count includes this issue.
+
 ### Planned Visual Cues
 - Section detection — Flag missing or poorly defined resume sections (Education, Experience, Projects, Leadership & Skills)
 
