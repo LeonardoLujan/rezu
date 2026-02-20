@@ -53,3 +53,13 @@ body {
 .animate-scaleIn {
   animation: scaleIn 0.2s ease-in-out;
 }
+
+/* Carousel scroll animation */
+@keyframes scroll {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+
+.animate-scroll {
+  animation: scroll 25s linear infinite;
+}
