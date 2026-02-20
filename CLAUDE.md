@@ -10,6 +10,10 @@ Visual cues such as red highlights to identify large margins, or blue highlights
 
 This project was borne out of manually critiquing many resumes, and encountering the same consistent problems of poor formatting, not using whitespace, and not correctly defining sections of the resume such as: Education, Experience, Projects, Leadership & Skills.
 
+Currently, the project enables users to upload a resume, and receive the following solutions: large margin detection (> 0.7 in), inconsistent time formatting, education formality and section proximity.
+
+In future iterations, it would be ideal to allow the user to critique their own resume within Rezu, potentially altering a word or google sheet document with new critiques, which the user would then be able to download.
+
 ---
 
 ## Tech Stack
