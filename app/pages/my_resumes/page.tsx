@@ -25,7 +25,7 @@ const ResumePreview = dynamic(() => import('@/components/resume/ResumePreview'),
   ssr: false,
   loading: () => (
     <div className="flex items-center justify-center p-8">
-      <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600"></div>
+      <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
     </div>
   )
 })
@@ -255,14 +255,14 @@ export default function My_Resumes() {
         </button>
 
 
-        {file && <p className="mb-4 text-gray-600 font-medium">Selected: <span className="text-purple-700">{file.name}</span></p>}
+        {file && <p className="mb-4 text-gray-600 font-medium">Selected: <span className="text-blue-700">{file.name}</span></p>}
 
         <button
           onClick={handleUpload}
           disabled={!file}
           className={`px-8 py-3 text-white rounded-lg shadow-lg transition duration-150 ${
             file
-              ? 'bg-purple-700 hover:bg-purple-800 transform hover:scale-[1.01]'
+              ? 'bg-blue-700 hover:bg-blue-800 transform hover:scale-[1.01]'
               : 'bg-gray-400 cursor-not-allowed'
           }`}
         >
@@ -276,7 +276,7 @@ export default function My_Resumes() {
                 </p>
                 <div className="w-full bg-gray-200 rounded-full h-2.5">
                     <div 
-                        className="bg-purple-600 h-2.5 rounded-full transition-all duration-500" 
+                        className="bg-blue-600 h-2.5 rounded-full transition-all duration-500" 
                         style={{ width: `${uploadProgress}%` }}
                     ></div>
                 </div>
@@ -304,10 +304,10 @@ export default function My_Resumes() {
           {resumes.map((resume) => (
             <div
               key={resume.id}
-              className="w-full max-w-xs bg-white border border-gray-200 rounded-xl p-6 shadow-xl flex flex-col justify-between transition duration-200 hover:shadow-2xl hover:border-purple-400"
+              className="w-full max-w-xs bg-white border border-gray-200 rounded-xl p-6 shadow-xl flex flex-col justify-between transition duration-200 hover:shadow-2xl hover:border-blue-400"
             >
               <div className="flex items-center mb-4">
-                <svg className="w-6 h-6 text-purple-600 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                <svg className="w-6 h-6 text-blue-600 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
                 <p className="text-lg font-semibold text-gray-800 truncate">
                   {resume.name} {/* Display the actual resume name */}
                 </p>
@@ -319,7 +319,7 @@ export default function My_Resumes() {
               <div className="flex flex-col space-y-2 mt-2">
                 <button
                   onClick={() => handlePreview(resume)}
-                  className="w-full px-4 py-2 text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition"
+                  className="w-full px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
                 >
                   Preview
                 </button>
