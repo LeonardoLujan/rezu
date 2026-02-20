@@ -1,6 +1,6 @@
 [
   {
-    "origin": ["https://tezu.vercel.app"],
+    "origin": ["https://tezu.vercel.app", "https://rezu.app"],
     "method": ["GET"],
     "maxAgeSeconds": 3600
   }
