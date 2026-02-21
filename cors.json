@@ -1,7 +1,8 @@
 [
   {
-    "origin": ["https://tezu.vercel.app", "https://rezu.app"],
-    "method": ["GET"],
+    "origin": ["http://localhost:3000", "https://localhost:3000", "https://rezu.app"],
+    "method": ["GET", "HEAD"],
+    "responseHeader": ["Content-Type", "Authorization", "Range"],
     "maxAgeSeconds": 3600
   }
 ]

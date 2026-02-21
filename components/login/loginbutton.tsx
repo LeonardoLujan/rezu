@@ -4,6 +4,7 @@ import { auth, googleProvider } from '@/lib/firebase'
 import { signInWithPopup, signOut } from 'firebase/auth'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import Image from 'next/image'
 
 export default function LoginButton() {
   const [user, setUser] = useState<any>(null)
@@ -45,9 +46,14 @@ export default function LoginButton() {
       ) : (
         <button
           onClick={handleLogin}
-          className="px-6 py-2 bg-blue-700 text-white rounded hover:bg-blue-800"
+          className="transition-opacity hover:opacity-80"
         >
-          Login with Google
+          <Image
+            src="/sign_in_images/sign_up_with_google.svg"
+            alt="Sign in with Google"
+            width={179}
+            height={40}
+          />
         </button>
       )}
     </div>
