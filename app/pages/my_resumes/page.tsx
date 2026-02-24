@@ -48,6 +48,7 @@ export default function My_Resumes() {
   const [downloadURL, setDownloadURL] = useState("");
   const [resumes, setResumes] = useState<ResumeItem[]>([]); // State to store fetched resumes
   const [previewResume, setPreviewResume] = useState<ResumeItem | null>(null)
+  const [showLimitModal, setShowLimitModal] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const router = useRouter()
 
@@ -112,9 +113,14 @@ export default function My_Resumes() {
   const handleUpload = async () => {
     if (!file || !user) {
         console.error("Please select a file and ensure you are logged in.");
-        return; 
+        return;
     }
-    
+
+    if (resumes.length >= 10) {
+        setShowLimitModal(true)
+        return
+    }
+
     // Reset progress before starting new upload
     setUploadProgress(0);
 
@@ -342,6 +348,26 @@ export default function My_Resumes() {
           ))}
         </div>
       </main>
+
+      {/* Resume Limit Modal */}
+      <Modal
+        isOpen={showLimitModal}
+        onClose={() => setShowLimitModal(false)}
+        maxWidth="sm"
+      >
+        <div className="p-8 text-center">
+          <p className="text-lg font-semibold text-gray-800 mb-2">
+            Max amount of resumes stored
+          </p>
+          <p className="text-gray-500 mb-6">Delete one to continue.</p>
+          <button
+            onClick={() => setShowLimitModal(false)}
+            className="px-6 py-2 bg-blue-700 text-white rounded-lg hover:bg-blue-800 transition"
+          >
+            OK
+          </button>
+        </div>
+      </Modal>
 
       {/* Resume Preview Modal */}
       <Modal
