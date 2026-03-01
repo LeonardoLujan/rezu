@@ -22,6 +22,7 @@ interface WhitespaceIndicator {
   y: number;           // screen px — vertical position (text baseline)
   width: number;       // screen px — width of the unused portion
   lineText: string;    // concatenated text of the flagged line
+  fullBulletText: string; // full bullet point text (may span multiple wrapped lines)
   utilization: number; // fraction of full_width that this line's text occupies (0–1)
   lineX: number;       // screen px — left edge of the full content line
   lineHeight: number;  // screen px — estimated line height
@@ -83,6 +84,11 @@ interface SectionSizeIssue {
   baseHeight: number;
 }
 
+interface SectionNamingIssue extends SectionSizeIssue {
+  canonicalName: string; // the recommended replacement, e.g. "Leadership"
+  // sectionName (inherited) holds what the user actually wrote, e.g. "Activities and Leadership"
+}
+
 const ZOOM_LEVELS = [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0]
 const MIN_SOLUTIONS_WIDTH = 360
 const MAX_SOLUTIONS_WIDTH = 600
@@ -131,6 +137,7 @@ function detectWhitespaceMargins(
     const ctx = canvas.getContext('2d')
     if (!ctx) return null
 
+    //getting every pixel
     const w = canvas.width
     const h = canvas.height
     const { data } = ctx.getImageData(0, 0, w, h)
@@ -174,6 +181,15 @@ function detectWhitespaceMargins(
   }
 }
 
+function getNextMidnightLabel(): string {
+  const tomorrow = new Date()
+  tomorrow.setDate(tomorrow.getDate() + 1)
+  tomorrow.setHours(0, 0, 0, 0)
+  const month = tomorrow.toLocaleString('en-US', { month: 'long' })
+  const day = String(tomorrow.getDate()).padStart(2, '0')
+  return `${month} ${day}, 12:00 A.M.`
+}
+
 export default function ResumePreview({
   downloadURL,
   fileName,
@@ -196,7 +212,14 @@ export default function ResumePreview({
   const [selectedSolution, setSelectedSolution] = useState<string | null>(null)
   const [sectionOrderIssues, setSectionOrderIssues] = useState<SectionOrderIssue[]>([])
   const [sectionSizeIssues, setSectionSizeIssues] = useState<SectionSizeIssue[]>([])
+  const [sectionNamingIssues, setSectionNamingIssues] = useState<SectionNamingIssue[]>([])
   const [solutionsWidth, setSolutionsWidth] = useState(MIN_SOLUTIONS_WIDTH)
+  const [rewriteResults, setRewriteResults] = useState<Record<string, string>>({})
+  const [rewriteLoading, setRewriteLoading] = useState<Record<string, boolean>>({})
+  const [legendsExpanded, setLegendsExpanded] = useState(false)
+  const [aiUsageCount, setAiUsageCount] = useState(0)
+  const [showAiLimitModal, setShowAiLimitModal] = useState(false)
+  const [preModalSolution, setPreModalSolution] = useState<string | null>(null)
 
   const pageContainerRef = useRef<HTMLDivElement>(null)
   const isDraggingRef = useRef(false)
@@ -206,6 +229,17 @@ export default function ResumePreview({
   // Configure PDF.js worker on client side only
   useEffect(() => {
     pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`
+  }, [])
+
+  // Load AI usage count from localStorage, reset if it's a new day
+  useEffect(() => {
+    const stored = localStorage.getItem('rezu_ai_usage')
+    if (stored) {
+      const parsed = JSON.parse(stored)
+      if (parsed.date === new Date().toDateString()) {
+        setAiUsageCount(parsed.count ?? 0)
+      }
+    }
   }, [])
 
   // Clear stale overlays when the page or zoom level changes
@@ -466,6 +500,10 @@ export default function ResumePreview({
         const height: number = (ti.height as number) || 12
         const [, screenY] = viewport.convertToViewportPoint(pdfX, pdfY)
 
+        //BucketKey: Used to group items into the same line if their Y coordinates are within ±2 points in PDF space.
+        //This accounts for minor vertical misalignments in the PDF text extraction.
+        //Prevents: Lines stored as separate entries due to small Y differences represented as separate lines, ensuring accurate line grouping for subsequent analysis.
+
         let bucketKey: number | null = null
         for (const k of lineMap.keys()) {
           if (Math.abs(k - pdfY) <= LINE_TOLERANCE_PTS) { bucketKey = k; break }
@@ -530,7 +568,51 @@ export default function ResumePreview({
       const fullWidth = xRight - xLeft
       if (fullWidth <= 0) return
 
-      // ── 6. Flag lines with more than 25% unused space ──────────────────────
+      // ── 6. Group lines into full bullet points for AI context ──────────────
+      // Sort top-to-bottom (descending pdfY = top of page first in PDF space).
+      // A non-bullet line is treated as a continuation only if its screenY gap
+      // from the previous line is ≤ 2× line height. This prevents company/date
+      // lines between job entries from cross-contaminating bullet groups.
+      const BULLET_STARTERS = ['•', '·', '‣', '▪', '▸', '›', '–', '—', '-', '*', '◦', '○', '●']
+      const isBulletStart = (text: string) =>
+        BULLET_STARTERS.some(b => text.trimStart().startsWith(b))
+
+      const sortedForGrouping = [...screenLines].sort((a, b) => b.pdfY - a.pdfY)
+      const lineFullBulletMap = new Map<number, string>()
+      let groupPdfYs: number[] = []
+      let groupTexts: string[] = []
+      let prevGroupLine: typeof sortedForGrouping[0] | null = null
+
+      const flushGroup = () => {
+        if (groupTexts.length === 0) return
+        const full = groupTexts.join(' ')
+        groupPdfYs.forEach(y => lineFullBulletMap.set(y, full))
+        groupPdfYs = []
+        groupTexts = []
+      }
+
+      for (const line of sortedForGrouping) {
+        if (isBulletStart(line.lineText)) {
+          flushGroup()
+          groupPdfYs.push(line.pdfY)
+          groupTexts.push(line.lineText)
+        } else if (prevGroupLine !== null && groupTexts.length > 0) {
+          const gap = line.screenY - prevGroupLine.screenY
+          const refHeight = Math.max(prevGroupLine.lineHeight || 12, line.lineHeight || 12)
+          if (gap <= 2.0 * refHeight) {
+            // Close enough to previous line: treat as a continuation
+            groupPdfYs.push(line.pdfY)
+            groupTexts.push(line.lineText)
+          } else {
+            // Too far away (company/date line or new section): break the group
+            flushGroup()
+          }
+        }
+        prevGroupLine = line
+      }
+      flushGroup()
+
+      // ── 7. Flag lines with more than 25% unused space ──────────────────────
       const indicators: WhitespaceIndicator[] = []
       for (const line of screenLines) {
         const unused = xRight - line.screenXRight
@@ -541,6 +623,7 @@ export default function ResumePreview({
             y: line.screenY - 1,
             width: unused,
             lineText: line.lineText,
+            fullBulletText: lineFullBulletMap.get(line.pdfY) || line.lineText,
             utilization,
             lineX: xLeft,
             lineHeight: line.lineHeight,
@@ -805,6 +888,79 @@ export default function ResumePreview({
     }
   }, [])
 
+  /**
+   * Scans all pages for section headers whose text does not match the canonical
+   * name for that section (e.g. "Activities and Leadership" instead of "Leadership").
+   * Reuses SECTION_KEYWORD_TO_CANONICAL: if a header is recognized but its text
+   * doesn't exactly match the canonical, it is flagged as a naming issue.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const analyzeSectionNaming = useCallback(async (pdf: any) => {
+    try {
+      const allIssues: SectionNamingIssue[] = []
+
+      for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+        const page = await pdf.getPage(pageNum)
+        const viewport = page.getViewport({ scale: 1 })
+        const textContent = await page.getTextContent()
+
+        type TItem = { str: string; x: number; y: number; width: number; height: number }
+        const lineMap = new Map<number, TItem[]>()
+
+        for (const item of textContent.items) {
+          if (!('str' in item) || !item.str.trim() || !('transform' in item)) continue
+          const y = item.transform[5]
+          let bucketKey: number | null = null
+          for (const k of lineMap.keys()) {
+            if (Math.abs(k - y) <= LINE_TOLERANCE_PTS) { bucketKey = k; break }
+          }
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const entry: TItem = { str: item.str, x: item.transform[4], y, width: (item as any).width, height: (item as any).height || 12 }
+          if (bucketKey !== null) lineMap.get(bucketKey)!.push(entry)
+          else lineMap.set(y, [entry])
+        }
+
+        for (const [pdfY, items] of lineMap) {
+          const lineText = items.map(i => i.str).join(' ').toLowerCase().trim()
+          if (lineText.length >= 40) continue
+
+          // Find the longest keyword that matches the start of this line
+          const matchedKeyword = Object.keys(SECTION_KEYWORD_TO_CANONICAL)
+            .sort((a, b) => b.length - a.length)
+            .find(kw => lineText.startsWith(kw))
+          if (!matchedKeyword) continue
+
+          const canonical = SECTION_KEYWORD_TO_CANONICAL[matchedKeyword]
+
+          // If the header already matches the canonical name exactly, no issue
+          if (lineText === canonical.toLowerCase()) continue
+
+          const sortedItems = items.slice().sort((a, b) => a.x - b.x)
+          const [baseX, baseYViewport] = viewport.convertToViewportPoint(sortedItems[0].x, pdfY)
+          const [baseXRight] = viewport.convertToViewportPoint(
+            sortedItems[sortedItems.length - 1].x + sortedItems[sortedItems.length - 1].width, pdfY
+          )
+          const height = Math.max(...items.map(i => i.height)) || 12
+
+          allIssues.push({
+            sectionName: items.map(i => i.str).join(' ').trim(),
+            canonicalName: canonical,
+            page: pageNum,
+            pdfY,
+            baseX,
+            baseY: baseYViewport - height,
+            baseWidth: baseXRight - baseX,
+            baseHeight: height,
+          })
+        }
+      }
+
+      setSectionNamingIssues(allIssues)
+    } catch (e) {
+      console.error('Section naming analysis error:', e)
+    }
+  }, [])
+
 
   const allSolutions = useMemo(() => {
     const combined = [
@@ -850,6 +1006,13 @@ export default function ResumePreview({
         pdfY: iss.pdfY,
         data: iss,
       })),
+      ...sectionNamingIssues.map((iss, i) => ({
+        type: 'sectionNaming' as const,
+        key: `sectionNaming-${i}`,
+        page: iss.page,
+        pdfY: iss.pdfY,
+        data: iss,
+      })),
     ];
 
     // Sort by page number, then by vertical position (top to bottom, so descending pdfY)
@@ -861,7 +1024,7 @@ export default function ResumePreview({
     });
 
     return combined;
-  }, [degreeIssues, seasonIssues, whitespaceIndicators, clutterIssues, sectionOrderIssues, sectionSizeIssues, pageNumber]);
+  }, [degreeIssues, seasonIssues, whitespaceIndicators, clutterIssues, sectionOrderIssues, sectionSizeIssues, sectionNamingIssues, pageNumber]);
 
   const onPageRenderSuccess = useCallback(() => {
     requestAnimationFrame(analyzeMargins)
@@ -879,6 +1042,7 @@ export default function ResumePreview({
     analyzeSectionSpacing(pdf)
     analyzeSectionOrder(pdf)
     analyzeSectionTitleSize(pdf)
+    analyzeSectionNaming(pdf)
   }
 
   const onDocumentLoadError = (error: Error) => {
@@ -919,7 +1083,8 @@ export default function ResumePreview({
   const hasClutterIssue = clutterIssues.length > 0
   const hasSectionOrderIssue = sectionOrderIssues.length > 0
   const hasSectionSizeIssue = sectionSizeIssues.length > 0
-  const totalSolutionsCount = whitespaceIndicators.length + seasonIssues.length + degreeIssues.length + clutterIssues.length + sectionOrderIssues.length + sectionSizeIssues.length
+  const hasSectionNamingIssue = sectionNamingIssues.length > 0
+  const totalSolutionsCount = whitespaceIndicators.length + seasonIssues.length + degreeIssues.length + clutterIssues.length + sectionOrderIssues.length + sectionSizeIssues.length + sectionNamingIssues.length
 
   const critiqueLegends = useMemo(() => {
     const legends: { type: string, node: React.ReactNode }[] = [];
@@ -1004,6 +1169,22 @@ export default function ResumePreview({
         )
       })
     }
+    if (hasSectionNamingIssue) {
+      legends.push({
+        type: 'sectionNaming',
+        node: (
+          <div key="legend-sectionNaming" className="flex items-center gap-2 px-4 py-2 bg-violet-50 border-b border-violet-200 text-sm text-violet-700">
+            <div className="w-3 h-3 rounded-sm flex-shrink-0" style={{ backgroundColor: 'rgba(139, 92, 246, 0.4)' }} />
+            <span>
+              {sectionNamingIssues.length === 1
+                ? <>Section &ldquo;{sectionNamingIssues[0].sectionName}&rdquo; uses a non-standard name &mdash; consider simplifying it</>
+                : <>{sectionNamingIssues.length} section headers use non-standard names &mdash; consider simplifying them</>
+              }
+            </span>
+          </div>
+        )
+      })
+    }
 
     const firstOfEachType = allSolutions.reduce((acc, sol) => {
       if (!acc.find(s => s.type === sol.type)) {
@@ -1015,12 +1196,12 @@ export default function ResumePreview({
     firstOfEachType.sort((a, b) => a.index - b.index);
 
     return firstOfEachType.map(o => legends.find(l => l.type === o.type)?.node);
-  }, [hasWhitespaceIssue, hasSeasonIssue, hasDegreeIssue, hasClutterIssue, hasSectionOrderIssue, hasSectionSizeIssue, seasonIssues, degreeIssues, sectionSizeIssues, allSolutions]);
+  }, [hasWhitespaceIssue, hasSeasonIssue, hasDegreeIssue, hasClutterIssue, hasSectionOrderIssue, hasSectionSizeIssue, hasSectionNamingIssue, seasonIssues, degreeIssues, sectionSizeIssues, sectionNamingIssues, allSolutions]);
 
 
 
   return (
-    <div className="flex flex-col h-full max-h-[85vh] w-full max-w-[90vw] mx-auto">
+    <div className="relative flex flex-col h-full max-h-[85vh] w-full max-w-[90vw] mx-auto">
       {/* Header */}
       <div className="flex items-center justify-between p-4 border-b border-gray-200 bg-white">
         <div className="flex items-center space-x-3">
@@ -1066,15 +1247,53 @@ export default function ResumePreview({
         </button>
       </div>
 
-      {/* Critique Legend — margins */}
-      {hasMarginIssue && (
-        <div className="flex items-center gap-2 px-4 py-2 bg-red-50 border-b border-red-200 text-sm text-red-700">
-          <div className="w-3 h-3 rounded-sm flex-shrink-0" style={{ backgroundColor: 'rgba(220, 38, 38, 0.5)' }} />
-          <span>Margins exceed 0.7&#34; &mdash; consider reducing to reclaim content space</span>
-        </div>
-      )}
+      {/* Critique Legends */}
+      {(() => {
+        const allLegendNodes: React.ReactNode[] = [
+          ...(hasMarginIssue ? [
+            <div key="legend-margin" className="flex items-center gap-2 px-4 py-2 bg-red-50 border-b border-red-200 text-sm text-red-700">
+              <div className="w-3 h-3 rounded-sm flex-shrink-0" style={{ backgroundColor: 'rgba(220, 38, 38, 0.5)' }} />
+              <span>Margins exceed 0.7&#34; &mdash; consider reducing to reclaim content space</span>
+            </div>
+          ] : []),
+          ...((critiqueLegends as React.ReactNode[]).filter(Boolean)),
+        ]
 
-      {critiqueLegends}
+        if (allLegendNodes.length <= 3) return <>{allLegendNodes}</>
+
+        const visible = allLegendNodes.slice(0, 3)
+        const extra = allLegendNodes.slice(3)
+
+        return (
+          <>
+            {visible}
+            {legendsExpanded ? (
+              <>
+                <div className="flex items-stretch">
+                  <button
+                    onClick={() => setLegendsExpanded(false)}
+                    className="w-6 flex-shrink-0 bg-gray-100 hover:bg-gray-200 flex items-center justify-center text-gray-500 border-b border-r border-gray-300 transition text-base"
+                    title="Show fewer critiques"
+                    aria-label="Collapse critiques"
+                  >
+                    −
+                  </button>
+                  <div className="flex-1 min-w-0">{extra[0]}</div>
+                </div>
+                {extra.slice(1)}
+              </>
+            ) : (
+              <button
+                onClick={() => setLegendsExpanded(true)}
+                className="flex items-center gap-2 px-4 py-2 bg-gray-50 border-b border-gray-300 text-sm text-gray-500 hover:bg-gray-100 transition w-full text-left"
+              >
+                <div className="w-3 h-3 rounded-sm flex-shrink-0 bg-gray-300" />
+                <span>Click to view {extra.length} more critique{extra.length > 1 ? 's' : ''}</span>
+              </button>
+            )}
+          </>
+        )
+      })()}
 
       {/* PDF Viewer + Solutions Sidebar */}
       <div className="flex-1 overflow-hidden flex flex-row">
@@ -1215,6 +1434,26 @@ export default function ResumePreview({
                       height: `${iss.baseHeight * scale + pad * 2}px`,
                       backgroundColor: isSelected ? 'rgba(225, 29, 72, 0.6)' : 'rgba(225, 29, 72, 0.3)',
                       outline: isSelected ? '2px solid rgba(190, 18, 60, 0.9)' : 'none',
+                      transition: 'all 0.15s ease',
+                      pointerEvents: 'none',
+                    }} />
+                  )
+                })}
+
+                {/* Section naming highlights */}
+                {sectionNamingIssues.map((iss, i) => {
+                  if (iss.page !== pageNumber) return null
+                  const isSelected = selectedSolution === `sectionNaming-${i}`
+                  const pad = isSelected ? 4 : 0
+                  return (
+                    <div key={`sectionNaming-${i}`} style={{
+                      position: 'absolute',
+                      left:   `${iss.baseX * scale - pad}px`,
+                      top:    `${iss.baseY * scale - pad}px`,
+                      width:  `${iss.baseWidth * scale + pad * 2}px`,
+                      height: `${iss.baseHeight * scale + pad * 2}px`,
+                      backgroundColor: isSelected ? 'rgba(139, 92, 246, 0.6)' : 'rgba(139, 92, 246, 0.3)',
+                      outline: isSelected ? '2px solid rgba(109, 40, 217, 0.9)' : 'none',
                       transition: 'all 0.15s ease',
                       pointerEvents: 'none',
                     }} />
@@ -1448,7 +1687,7 @@ export default function ResumePreview({
                                   overflow: 'hidden',
                                 }}
                               >
-                                {ind.lineText || '(empty line)'}
+                                {ind.fullBulletText || ind.lineText || '(empty line)'}
                               </p>
                             </div>
                             <div className="p-2 space-y-2">
@@ -1476,6 +1715,69 @@ export default function ResumePreview({
                                   </p>
                                 </div>
                               ))}
+                            </div>
+
+                            {/* AI Rewrite */}
+                            <div className="px-2 pb-2">
+                              {rewriteResults[solution.key] ? (
+                                <div className="p-2 rounded text-xs bg-green-50 border border-green-200">
+                                  <p className="font-semibold text-green-700 mb-1">AI Suggestion</p>
+                                  <p className="text-green-800 font-mono leading-relaxed">{rewriteResults[solution.key]}</p>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      setRewriteResults(prev => { const next = { ...prev }; delete next[solution.key]; return next })
+                                    }}
+                                    className="mt-2 text-[10px] text-green-600 hover:text-green-700 underline"
+                                  >
+                                    Clear
+                                  </button>
+                                </div>
+                              ) : (
+                                <button
+                                  onClick={async (e) => {
+                                    e.stopPropagation()
+                                    if (aiUsageCount >= 10) {
+                                      setPreModalSolution(selectedSolution)
+                                      setShowAiLimitModal(true)
+                                      return
+                                    }
+                                    const action = recommendShorten ? 'shorten' : 'expand'
+                                    setRewriteLoading(prev => ({ ...prev, [solution.key]: true }))
+                                    try {
+                                      const res = await fetch('/api/rewrite-bullet', {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({ bulletText: ind.fullBulletText, action }),
+                                      })
+                                      const data = await res.json()
+                                      if (data.rewritten) {
+                                        setRewriteResults(prev => ({ ...prev, [solution.key]: data.rewritten }))
+                                        const newCount = aiUsageCount + 1
+                                        setAiUsageCount(newCount)
+                                        localStorage.setItem('rezu_ai_usage', JSON.stringify({ date: new Date().toDateString(), count: newCount }))
+                                        if (newCount >= 10) {
+                                          setPreModalSolution(selectedSolution)
+                                          setShowAiLimitModal(true)
+                                        }
+                                      }
+                                    } finally {
+                                      setRewriteLoading(prev => ({ ...prev, [solution.key]: false }))
+                                    }
+                                  }}
+                                  disabled={rewriteLoading[solution.key]}
+                                  className="w-full mt-1 py-1.5 text-xs font-medium text-blue-700 bg-blue-50 border border-blue-200 rounded hover:bg-blue-100 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1.5"
+                                >
+                                  {rewriteLoading[solution.key] ? (
+                                    <>
+                                      <span className="w-3 h-3 border border-blue-700 border-t-transparent rounded-full animate-spin inline-block" />
+                                      Generating...
+                                    </>
+                                  ) : (
+                                    '✨ Rewrite with AI'
+                                  )}
+                                </button>
+                              )}
                             </div>
                           </div>
                         );
@@ -1592,6 +1894,44 @@ export default function ResumePreview({
                           </div>
                         );
                       }
+                      if (solution.type === 'sectionNaming') {
+                        const iss = solution.data as SectionNamingIssue;
+                        const i = sectionNamingIssues.indexOf(iss);
+                        return (
+                          <div
+                            key={solution.key}
+                            onClick={() => {
+                              if (iss.page !== pageNumber) setPageNumber(iss.page)
+                              setSelectedSolution(prev => prev === solution.key ? null : solution.key)
+                            }}
+                            className={`rounded-lg border overflow-hidden cursor-pointer transition-all bg-violet-50 ${
+                              selectedSolution === solution.key
+                                ? 'border-violet-500 ring-2 ring-violet-300'
+                                : 'border-violet-200 hover:border-violet-400'
+                            }`}
+                          >
+                            <div className="px-3 py-2 border-b border-violet-200 bg-white">
+                              <p className="text-[11px] text-violet-600 uppercase tracking-wide font-medium mb-1">
+                                Section Naming{sectionNamingIssues.length > 1 ? ` (${i + 1}/${sectionNamingIssues.length})` : ''} — p.{iss.page}
+                              </p>
+                              <p className="text-xs text-gray-700 font-mono leading-relaxed border-l-2 border-violet-400 pl-2">
+                                &ldquo;{iss.sectionName}&rdquo;
+                              </p>
+                            </div>
+                            <div className="p-2">
+                              <div className="p-2 rounded text-xs bg-violet-100 border border-violet-300">
+                                <div className="flex items-center gap-1.5 mb-1">
+                                  <span className="font-semibold text-violet-700">Simplify Section Name</span>
+                                  <span className="text-[10px] bg-violet-500 text-white px-1.5 py-0.5 rounded font-medium">Recommended</span>
+                                </div>
+                                <p className="text-violet-700">
+                                  Consider renaming this section to &ldquo;{iss.canonicalName}&rdquo;. Simpler, standard names are easier for recruiters and ATS systems to recognize.
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      }
                       return null;
                     })
                   )}
@@ -1602,6 +1942,34 @@ export default function ResumePreview({
           </div>
         )}
       </div>
+
+      {/* AI Daily Limit Modal */}
+      {showAiLimitModal && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm rounded-xl">
+          <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-sm w-full mx-4 flex flex-col items-center text-center gap-5">
+            <div className="w-14 h-14 rounded-full bg-amber-50 flex items-center justify-center">
+              <svg className="w-7 h-7 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+              </svg>
+            </div>
+            <div>
+              <p className="text-base font-semibold text-gray-900">You have reached your Rewrite with AI limit for the day</p>
+              <p className="mt-2 text-sm text-gray-500">
+                Refreshes on <span className="font-medium text-gray-700">{getNextMidnightLabel()}</span>
+              </p>
+            </div>
+            <button
+              onClick={() => {
+                setShowAiLimitModal(false)
+                if (preModalSolution !== null) setSelectedSolution(preModalSolution)
+              }}
+              className="w-full py-2.5 bg-gray-900 text-white text-sm font-medium rounded-xl hover:bg-gray-700 transition"
+            >
+              Return to your last critique
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
