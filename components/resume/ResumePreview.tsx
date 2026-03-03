@@ -1,5 +1,12 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { Document, Page, pdfjs } from 'react-pdf'
+import {
+  getNextMidnightLabel,
+  loadAiUsageCount,
+  saveAiUsageCount,
+  isAiLimitReached,
+  SECTION_KEYWORD_TO_CANONICAL,
+} from '@/lib/utils'
 
 interface ResumePreviewProps {
   downloadURL: string;
@@ -93,16 +100,6 @@ const ZOOM_LEVELS = [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0]
 const MIN_SOLUTIONS_WIDTH = 360
 const MAX_SOLUTIONS_WIDTH = 600
 const EXPECTED_SECTION_ORDER = ['education', 'experience', 'projects', 'leadership', 'skills']
-const SECTION_KEYWORD_TO_CANONICAL: Record<string, string> = {
-  education: 'Education',
-  experience: 'Experience',
-  'academic projects': 'Projects',
-  projects: 'Projects',
-  leadership: 'Leadership',
-  activities: 'Leadership',
-  'technical skills': 'Skills',
-  skills: 'Skills',
-}
 const MARGIN_THRESHOLD_INCHES = 0.7
 const NEAR_WHITE_THRESHOLD = 230
 const SECTION_KEYWORDS = ['summary', 'education', 'experience', 'projects', 'leadership', 'skills', 'technical skills', 'academic projects', 'activities']
@@ -181,15 +178,6 @@ function detectWhitespaceMargins(
   }
 }
 
-function getNextMidnightLabel(): string {
-  const tomorrow = new Date()
-  tomorrow.setDate(tomorrow.getDate() + 1)
-  tomorrow.setHours(0, 0, 0, 0)
-  const month = tomorrow.toLocaleString('en-US', { month: 'long' })
-  const day = String(tomorrow.getDate()).padStart(2, '0')
-  return `${month} ${day}, 12:00 A.M.`
-}
-
 export default function ResumePreview({
   downloadURL,
   fileName,
@@ -233,13 +221,7 @@ export default function ResumePreview({
 
   // Load AI usage count from localStorage, reset if it's a new day
   useEffect(() => {
-    const stored = localStorage.getItem('rezu_ai_usage')
-    if (stored) {
-      const parsed = JSON.parse(stored)
-      if (parsed.date === new Date().toDateString()) {
-        setAiUsageCount(parsed.count ?? 0)
-      }
-    }
+    setAiUsageCount(loadAiUsageCount())
   }, [])
 
   // Clear stale overlays when the page or zoom level changes
@@ -1737,7 +1719,7 @@ export default function ResumePreview({
                                 <button
                                   onClick={async (e) => {
                                     e.stopPropagation()
-                                    if (aiUsageCount >= 10) {
+                                    if (isAiLimitReached(aiUsageCount)) {
                                       setPreModalSolution(selectedSolution)
                                       setShowAiLimitModal(true)
                                       return
@@ -1755,8 +1737,8 @@ export default function ResumePreview({
                                         setRewriteResults(prev => ({ ...prev, [solution.key]: data.rewritten }))
                                         const newCount = aiUsageCount + 1
                                         setAiUsageCount(newCount)
-                                        localStorage.setItem('rezu_ai_usage', JSON.stringify({ date: new Date().toDateString(), count: newCount }))
-                                        if (newCount >= 10) {
+                                        saveAiUsageCount(newCount)
+                                        if (isAiLimitReached(newCount)) {
                                           setPreModalSolution(selectedSolution)
                                           setShowAiLimitModal(true)
                                         }

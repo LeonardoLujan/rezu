@@ -47,8 +47,11 @@ rezu/
 │   ├── nav/nav.tsx                 # Navigation bar
 │   ├── auth/withAuth.tsx           # HOC — redirects unauthenticated users to /
 │   └── login/loginbutton.tsx       # Google OAuth login/logout, redirects to /pages/my_resumes on login
-└── lib/
-    └── firebase.ts                 # Firebase app, auth, storage, firestore instances
+├── lib/
+│   ├── firebase.ts                 # Firebase app, auth, storage, firestore instances
+│   └── utils.ts                    # Shared pure utilities (date formatting, AI usage tracking, section keyword map)
+└── __tests__/
+    └── utils.test.ts               # Unit tests for lib/utils.ts
 ```
 
 ---
@@ -102,6 +105,46 @@ The critique system overlays visual indicators directly on the PDF canvas inside
 3. Pixels with R, G, B all > 230 are treated as whitespace
 4. Margins are measured in physical canvas pixels, converted to CSS pixels (accounting for devicePixelRatio), then to inches (`cssPx / (72 * scale)`)
 5. Overlay `<div>`s are absolutely positioned over the canvas inside a relative wrapper
+
+---
+
+## Testing
+
+**Framework:** Vitest with jsdom (simulates a browser environment).
+**Run in watch mode:** `npm test` — re-runs on file save.
+**Run once:** `npm run test:run` — use before pushing to production.
+
+### Philosophy
+- Tests live in `__tests__/` and are committed to version control. The only thing gitignored is the auto-generated `coverage/` folder.
+- Pure utility functions in `lib/utils.ts` are the primary test targets. Logic buried in React components cannot be easily tested, so anything reusable should be extracted there first.
+- Three tiers (hardest to easiest): **Unit** (single function) → **Integration** (component + state) → **E2E** (full browser flow). Start with unit tests.
+
+### What is currently tested (`__tests__/utils.test.ts`)
+
+| Test group | What it verifies |
+|---|---|
+| `getNextMidnightLabel` | Returns the correct format, day, and month name for tomorrow at midnight |
+| `loadAiUsageCount` | Returns 0 on empty storage, returns 0 if the stored date is stale, round-trips correctly with `saveAiUsageCount` |
+| `isAiLimitReached` | Boundary conditions: false below limit, true at and above limit |
+| `SECTION_KEYWORD_TO_CANONICAL` | Data integrity — keys are lowercase, values are capitalized, aliases map to correct canonical names |
+
+### Test anatomy (for reference)
+```typescript
+describe('groupName', () => {       // groups related tests
+  beforeEach(() => { ... })         // runs before every test in this group (use for cleanup)
+
+  it('does X when given Y', () => { // one test case
+    // Arrange — set up data
+    // Act     — call the function
+    // Assert  — verify the result
+    expect(result).toBe(expectedValue)
+  })
+})
+```
+
+### Config files
+- `vitest.config.ts` — sets jsdom environment, enables globals (`describe`/`it`/`expect`), mirrors the `@/*` path alias from `tsconfig.json`
+- `vitest.setup.ts` — imports `@testing-library/jest-dom` for DOM-aware matchers (used when testing React components in the future)
 
 ---
 
