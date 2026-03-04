@@ -1,65 +1,47 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #f5f0e8;
+  --foreground: #1a1a18;
 }
 
 @theme inline {
+  /* Brand colors — available as bg-background, text-charcoal, bg-amber, etc. */
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
+  --color-charcoal: #1a1a18;
+  --color-amber: #c8a96e;
+  --color-forest: #2d5a3d;
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  /* Fonts — Next.js injects these CSS vars at runtime via next/font/google */
+  --font-display: var(--font-fraunces);
+  --font-sans: var(--font-dm-sans);
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans), sans-serif;
 }
 
 /* Modal animations */
 @keyframes fadeIn {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }
 
 @keyframes scaleIn {
-  from {
-    opacity: 0;
-    transform: scale(0.95);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1);
-  }
+  from { opacity: 0; transform: scale(0.95); }
+  to   { opacity: 1; transform: scale(1); }
 }
 
-.animate-fadeIn {
-  animation: fadeIn 0.2s ease-in-out;
-}
-
-.animate-scaleIn {
-  animation: scaleIn 0.2s ease-in-out;
-}
+.animate-fadeIn  { animation: fadeIn  0.2s ease-out; }
+.animate-scaleIn { animation: scaleIn 0.2s ease-out; }
 
 /* Carousel scroll animation */
 @keyframes scroll {
   from { transform: translateX(0); }
-  to { transform: translateX(-50%); }
+  to   { transform: translateX(-50%); }
 }
 
-.animate-scroll {
-  animation: scroll 25s linear infinite;
-}
+.animate-scroll { animation: scroll 25s linear infinite; }

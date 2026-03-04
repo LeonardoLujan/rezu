@@ -148,6 +148,74 @@ describe('groupName', () => {       // groups related tests
 
 ---
 
+## UI / Design Guidelines
+
+Rezu is an editorial, document-native resume critique tool. The UI should feel like a thoughtful editor's workspace — warm, human, and intentional — not a generic SaaS dashboard.
+
+### Color
+
+| Role | Value | Notes |
+|---|---|---|
+| App background | `#f5f0e8` (warm off-white) | Primary. Feels natural surrounding a white PDF document. |
+| Nav / sidebar shell | `#1a1a18` (deep charcoal) | Dark accent areas only — not the main canvas. |
+| Primary CTA | `#c8a96e` (warm amber) | Landing page buttons, key actions. Signals attention. |
+| Success / confirmation | `#2d5a3d` (forest green) | Upload complete, resolved state — never the primary CTA. |
+| Body text | `#1a1a18` on light, `#f5f0e8` on dark | |
+
+**Critique overlay colors** — keep the existing hue assignments (red/blue/amber/orange/teal/rose/violet) but apply richness to legend bars and solution cards. Keep overlay `rgba` opacity at **0.25–0.4** — overlays sit on top of PDF text and must not obscure it.
+
+Avoid: plain `#f0f2f5` gray backgrounds, royal blue (`#2563eb`) buttons, purple gradients, heavy drop shadows on cards.
+
+### Typography
+
+Fonts are loaded via `next/font/google` in the root layout and applied as CSS custom properties. Never use `@import` from Google Fonts directly.
+
+| Role | Font options | Tailwind class |
+|---|---|---|
+| Display / headings | Fraunces, Playfair Display, or Lora | `font-display` |
+| Body / UI text | DM Sans or Epilogue | `font-sans` |
+
+Never use Inter, Roboto, or Arial.
+
+Define in `app/layout.tsx`:
+```tsx
+import { Fraunces, DM_Sans } from 'next/font/google'
+const display = Fraunces({ subsets: ['latin'], variable: '--font-display' })
+const body = DM_Sans({ subsets: ['latin'], variable: '--font-sans' })
+```
+Apply variables to `<html>` and reference in `tailwind.config` or Tailwind v4 `@theme`.
+
+### Components
+
+- **Cards:** Warm off-white background, 1px border (`border-stone-200`), no heavy `box-shadow`.
+- **Buttons:** Rounded, amber fill for primary. Subtle warm hover states — no cold gray.
+- **Icons:** Use inline SVGs (current pattern). Prefer line-weight icons at 1.5–2px stroke. No filled icon packs.
+- **Empty states:** Should feel editorial — a short phrase in the display font, minimal illustration. Not a generic "no data" widget.
+
+### Motion
+
+When adding animations, use `framer-motion` (not CSS transitions for orchestrated sequences). Install only when a feature requires it — do not add proactively.
+
+Patterns to use:
+- Staggered children on page load (`staggerChildren: 0.05`)
+- Slide-in for critique panels (`x: 20 → 0`, `opacity: 0 → 1`)
+- No bounce easings — use `easeOut` or a gentle spring
+
+### Tailwind CSS v4 tokens
+
+Define brand values in the `@theme` block in `globals.css`:
+```css
+@theme {
+  --color-background: #f5f0e8;
+  --color-charcoal: #1a1a18;
+  --color-amber: #c8a96e;
+  --color-forest: #2d5a3d;
+}
+```
+This makes them available as `bg-background`, `text-charcoal`, etc.
+
+---
+
 ## What NOT to Do
 
 - Do not auto-commit changes unless explicitly asked.

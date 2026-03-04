@@ -24,21 +24,23 @@ export default function Nav() {
   }
 
   const linkClasses = (path: string) =>
-    `block py-2 px-3 rounded-sm md:p-0 ${
+    `block py-2 px-3 rounded-sm md:p-0 transition-colors ${
       pathname === path
-        ? 'text-white bg-blue-700 md:bg-transparent md:text-blue-700 dark:text-white md:dark:text-blue-500'
-        : 'text-gray-900 hover:bg-gray-100 md:hover:bg-transparent md:border-0 md:hover:text-blue-700 dark:text-white md:dark:hover:text-blue-500 dark:hover:bg-gray-700 dark:hover:text-white md:dark:hover:bg-transparent'
+        ? 'text-amber font-medium'
+        : 'text-[#f5f0e8]/60 hover:text-amber'
     }`
 
   return (
-    <nav className="bg-white border-gray-200 dark:bg-gray-900">
+    <nav className="bg-charcoal border-b border-white/10">
       <div className="max-w-screen-xl flex flex-wrap items-center justify-between mx-auto p-4">
         <a className="flex items-center space-x-3 rtl:space-x-reverse">
-          <span className="self-center text-3xl font-semibold whitespace-nowrap dark:text-white">Rezu</span>
+          <span className="self-center text-3xl font-display font-semibold whitespace-nowrap text-[#f5f0e8] tracking-tight">
+            Rezu
+          </span>
         </a>
 
         <div className="hidden w-full md:flex md:w-auto items-center gap-6" id="navbar-default">
-          <ul className="text-xl font-medium flex flex-col p-4 md:p-0 mt-4 border border-gray-100 rounded-lg bg-gray-50 md:flex-row md:space-x-8 rtl:space-x-reverse md:mt-0 md:border-0 md:bg-white dark:bg-gray-800 md:dark:bg-gray-900 dark:border-gray-700">
+          <ul className="text-base font-medium flex flex-col p-4 md:p-0 mt-4 md:flex-row md:space-x-8 rtl:space-x-reverse md:mt-0">
             <li>
               <Link href="/pages/my_resumes" className={linkClasses('/pages/my_resumes')}>My Resumes</Link>
             </li>
@@ -51,11 +53,11 @@ export default function Nav() {
           </ul>
 
           {email && (
-            <div className="flex items-center gap-3 border-l border-gray-200 pl-6">
-              <span className="text-sm text-gray-500">{email}</span>
+            <div className="flex items-center gap-3 border-l border-white/20 pl-6">
+              <span className="text-sm text-[#f5f0e8]/50">{email}</span>
               <button
                 onClick={handleLogout}
-                className="text-sm px-3 py-1.5 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition"
+                className="text-sm px-3 py-1.5 bg-white/10 text-[#f5f0e8] rounded-lg hover:bg-white/20 transition"
               >
                 Log out
               </button>
