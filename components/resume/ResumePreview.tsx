@@ -1185,45 +1185,45 @@ export default function ResumePreview({
   return (
     <div className="relative flex flex-col h-full max-h-[85vh] w-full max-w-[90vw] mx-auto">
       {/* Header */}
-      <div className="flex items-center justify-between p-4 border-b border-gray-200 bg-white">
+      <div className="flex items-center justify-between p-4 border-b border-stone-200 bg-white">
         <div className="flex items-center space-x-3">
-          <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+          <svg className="w-6 h-6 text-charcoal/40" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
           </svg>
-          <h2 className="text-lg font-semibold text-gray-800 truncate max-w-[300px] md:max-w-[500px]">
+          <h2 className="text-base font-medium text-charcoal truncate max-w-[300px] md:max-w-[500px]">
             {fileName}
           </h2>
         </div>
       </div>
 
       {/* Toolbar */}
-      <div className="flex flex-col md:flex-row items-center justify-between gap-3 p-3 bg-gray-50 border-b border-gray-200">
+      <div className="flex flex-col md:flex-row items-center justify-between gap-3 p-3 bg-[#f5f0e8] border-b border-stone-200">
         {/* Zoom Controls */}
         <div className="flex items-center gap-2">
-          <button onClick={zoomOut} disabled={!canZoomOut} className="p-2 bg-white border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition" aria-label="Zoom out">
+          <button onClick={zoomOut} disabled={!canZoomOut} className="p-2 bg-white border border-stone-200 rounded hover:bg-stone-50 disabled:opacity-50 disabled:cursor-not-allowed transition" aria-label="Zoom out">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM13 10H7" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM13 10H7" />
             </svg>
           </button>
-          <span className="text-sm font-medium text-gray-700 min-w-[60px] text-center">{Math.round(scale * 100)}%</span>
-          <button onClick={zoomIn} disabled={!canZoomIn} className="p-2 bg-white border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition" aria-label="Zoom in">
+          <span className="text-sm font-medium text-charcoal min-w-[60px] text-center">{Math.round(scale * 100)}%</span>
+          <button onClick={zoomIn} disabled={!canZoomIn} className="p-2 bg-white border border-stone-200 rounded hover:bg-stone-50 disabled:opacity-50 disabled:cursor-not-allowed transition" aria-label="Zoom in">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m0 0v3m0-3h3m-3 0H7" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m0 0v3m0-3h3m-3 0H7" />
             </svg>
           </button>
         </div>
 
         {/* Page Navigation */}
         <div className="flex items-center gap-3">
-          <button onClick={goToPrevPage} disabled={pageNumber <= 1} className="px-3 py-1.5 text-sm bg-white border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition">Previous</button>
-          <span className="text-sm font-medium text-gray-700 min-w-[80px] text-center">Page {pageNumber} / {numPages || '?'}</span>
-          <button onClick={goToNextPage} disabled={pageNumber >= numPages} className="px-3 py-1.5 text-sm bg-white border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition">Next</button>
+          <button onClick={goToPrevPage} disabled={pageNumber <= 1} className="px-3 py-1.5 text-sm text-charcoal bg-white border border-stone-200 rounded hover:bg-stone-50 disabled:opacity-50 disabled:cursor-not-allowed transition">Previous</button>
+          <span className="text-sm font-medium text-charcoal min-w-[80px] text-center">Page {pageNumber} / {numPages || '?'}</span>
+          <button onClick={goToNextPage} disabled={pageNumber >= numPages} className="px-3 py-1.5 text-sm text-charcoal bg-white border border-stone-200 rounded hover:bg-stone-50 disabled:opacity-50 disabled:cursor-not-allowed transition">Next</button>
         </div>
 
         {/* Download Button */}
-        <button onClick={onDownload} className="px-4 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition flex items-center gap-2">
+        <button onClick={onDownload} className="px-4 py-1.5 text-sm bg-amber text-charcoal rounded-lg hover:bg-[#b8995e] transition flex items-center gap-2">
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
           </svg>
           Download
         </button>
@@ -1254,7 +1254,7 @@ export default function ResumePreview({
                 <div className="flex items-stretch">
                   <button
                     onClick={() => setLegendsExpanded(false)}
-                    className="w-6 flex-shrink-0 bg-gray-100 hover:bg-gray-200 flex items-center justify-center text-gray-500 border-b border-r border-gray-300 transition text-base"
+                    className="w-6 flex-shrink-0 bg-stone-100 hover:bg-stone-200 flex items-center justify-center text-charcoal/40 border-b border-r border-stone-200 transition text-base"
                     title="Show fewer critiques"
                     aria-label="Collapse critiques"
                   >
@@ -1267,9 +1267,9 @@ export default function ResumePreview({
             ) : (
               <button
                 onClick={() => setLegendsExpanded(true)}
-                className="flex items-center gap-2 px-4 py-2 bg-gray-50 border-b border-gray-300 text-sm text-gray-500 hover:bg-gray-100 transition w-full text-left"
+                className="flex items-center gap-2 px-4 py-2 bg-stone-50 border-b border-stone-200 text-sm text-charcoal/40 hover:bg-stone-100 transition w-full text-left"
               >
-                <div className="w-3 h-3 rounded-sm flex-shrink-0 bg-gray-300" />
+                <div className="w-3 h-3 rounded-sm flex-shrink-0 bg-stone-300" />
                 <span>Click to view {extra.length} more critique{extra.length > 1 ? 's' : ''}</span>
               </button>
             )}
@@ -1281,10 +1281,10 @@ export default function ResumePreview({
       <div className="flex-1 overflow-hidden flex flex-row">
 
         {/* PDF area */}
-        <div className="flex-1 overflow-auto bg-gray-100 p-4 flex items-start justify-center">
+        <div className="flex-1 overflow-auto bg-stone-200 p-4 flex items-start justify-center">
           {loading && !error && (
             <div className="flex flex-col items-center justify-center p-8">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-amber"></div>
               <p className="mt-4 text-gray-600">Loading PDF...</p>
             </div>
           )}
@@ -1478,7 +1478,7 @@ export default function ResumePreview({
         {!error && !loading && showSolutions && (
           <div
             onMouseDown={onDragHandleMouseDown}
-            className="flex-shrink-0 w-1.5 self-stretch bg-gray-200 hover:bg-teal-400 active:bg-teal-500 cursor-col-resize transition-colors"
+            className="flex-shrink-0 w-1.5 self-stretch bg-stone-200 hover:bg-amber/60 active:bg-amber cursor-col-resize transition-colors"
             style={{ userSelect: 'none' }}
             title="Drag to resize"
           />
@@ -1486,34 +1486,34 @@ export default function ResumePreview({
 
         {/* Solutions Sidebar — only rendered once the PDF is loaded */}
         {!error && !loading && (
-          <div className="flex-shrink-0 flex bg-white border-l border-gray-200">
+          <div className="flex-shrink-0 flex bg-white border-l border-stone-200">
 
             {/* Vertical tab button (always visible) */}
             <button
               onClick={() => setShowSolutions(prev => !prev)}
-              className="w-10 flex flex-col items-center justify-center gap-2 py-4 hover:bg-gray-50 transition border-r border-gray-100"
+              className="w-10 flex flex-col items-center justify-center gap-2 py-4 hover:bg-stone-50 transition border-r border-stone-100"
               aria-label={showSolutions ? 'Close Solutions panel' : 'Open Solutions panel'}
             >
               {/* Count badge */}
               <span
                 className={`w-5 h-5 text-[10px] font-bold rounded-full flex items-center justify-center ${
                   totalSolutionsCount > 0
-                    ? 'bg-blue-500 text-white'
-                    : 'bg-gray-200 text-gray-500'
+                    ? 'bg-amber text-charcoal'
+                    : 'bg-stone-200 text-charcoal/40'
                 }`}
               >
                 {totalSolutionsCount}
               </span>
               {/* Rotated label */}
               <span
-                className="text-[11px] font-medium text-gray-600 select-none"
+                className="text-[11px] font-medium text-charcoal/60 select-none"
                 style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}
               >
                 Solutions
               </span>
               {/* Chevron */}
               <svg
-                className={`w-3 h-3 text-gray-400 transition-transform ${showSolutions ? 'rotate-90' : '-rotate-90'}`}
+                className={`w-3 h-3 text-charcoal/30 transition-transform ${showSolutions ? 'rotate-90' : '-rotate-90'}`}
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
@@ -1530,26 +1530,26 @@ export default function ResumePreview({
               <div className="h-full overflow-y-auto flex flex-col" style={{ width: `${solutionsWidth}px` }}>
 
                 {/* Panel header */}
-                <div className="px-4 py-3 border-b border-gray-200 bg-gray-50 flex-shrink-0">
-                  <h3 className="text-sm font-semibold text-gray-700">
+                <div className="px-4 py-3 border-b border-stone-200 bg-[#f5f0e8] flex-shrink-0">
+                  <h3 className="text-sm font-semibold text-charcoal">
                     Solutions
                     {totalSolutionsCount > 0 && (
-                      <span className="ml-2 text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full font-medium">
+                      <span className="ml-2 text-xs bg-amber/20 text-charcoal px-1.5 py-0.5 rounded-full font-medium">
                         {totalSolutionsCount} issue{totalSolutionsCount !== 1 ? 's' : ''}
                       </span>
                     )}
                   </h3>
-                  <p className="text-xs text-gray-500 mt-0.5">Suggestions for flagged lines</p>
+                  <p className="text-xs text-charcoal/50 mt-0.5">Suggestions for flagged lines</p>
                 </div>
 
                 {/* Solution cards */}
                 <div className="flex-1 overflow-y-auto p-3 space-y-3">
                   {totalSolutionsCount === 0 ? (
                      <div className="flex flex-col items-center justify-center py-8 text-center">
-                       <svg className="w-8 h-8 text-green-400 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                       <svg className="w-8 h-8 text-forest mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                        </svg>
-                       <p className="text-sm text-gray-500">No issues found on this page.</p>
+                       <p className="text-sm text-charcoal/50">No issues found on this page.</p>
                      </div>
                   ) : (
                     allSolutions.map(solution => {
